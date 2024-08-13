@@ -1,0 +1,7 @@
+/package-lock.json
+/node_modules/
+/.env
+/dist/
+/test-setup-env.sh
+/src/__tests__/test-data/*
+!src/__tests__/test-data/.gitkeep
