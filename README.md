@@ -1,6 +1,6 @@
 # Crypto Payment Service
 
-[![CI/CD Pipeline](https://github.com/your-repo/crypto_payment/actions/workflows/deploy.yml/badge.svg)](https://github.com/your-repo/crypto_payment/actions/workflows/deploy.yml)
+[![CI/CD Pipeline](https://github.com/doottoy/crypto_payment/actions/workflows/depoly.yml/badge.svg)](https://github.com/doottoy/crypto_payment/actions/workflows/depoly.yml)
 
 ## Overview
 
@@ -25,7 +25,7 @@ To get started with the Crypto Payment Service, follow these steps:
 
 2. **Install Dependencies:**
    ```bash
-    npm install
+   npm install
 
 3. **Setup Environment Variables:**
 - Create a `.env` file in the root directory and add the required environment variables:
@@ -50,11 +50,11 @@ To get started with the Crypto Payment Service, follow these steps:
 
 4. **Build the Project:**
    ```bash
-    npm run app:build
+   npm run app:build
    
 5. **Start the Server:**
    ```bash
-    npm run app:start
+   npm run app:start
 
 ## API Endpoints
 
@@ -165,3 +165,6 @@ npm run lint-fix
 ## Deployment
 
 Deployment is managed through GitHub Actions. Changes to the main branch will trigger automatic deployment to the server. Ensure that your configuration and secrets are set up correctly in GitHub Actions.
+
+## Contributing
+I welcome contributions to the Crypto Payment Service. Please refer to the [contributing guidelines](https://github.com/doottoy/crypto_payment/CONTRIBUTING.md) for more information.
