@@ -1,0 +1,115 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - '**'
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build project
+        run: npm run app:build
+
+      - name: Set up environment variables
+        run: |
+          echo "AUTOMATION_GOOGLE_TOKEN=${{ secrets.AUTOMATION_GOOGLE_TOKEN }}" >> $GITHUB_ENV
+          echo "AUTOMATION_SERVICE_EMAIL=${{ secrets.AUTOMATION_SERVICE_EMAIL }}" >> $GITHUB_ENV
+          echo "AUTOMATION_SERVICE_PRIVATE_KEY=${{ secrets.AUTOMATION_SERVICE_PRIVATE_KEY }}" >> $GITHUB_ENV
+          echo "AUTOMATION_SERVICE_SCOPES=${{ secrets.AUTOMATION_SERVICE_SCOPES }}" >> $GITHUB_ENV
+          echo "AUTOMATION_EVM_PRIVATE_KEY=${{ secrets.AUTOMATION_EVM_PRIVATE_KEY }}" >> $GITHUB_ENV
+          echo "RPC_URL=${{ secrets.RPC_URL }}" >> $GITHUB_ENV
+          echo "RPC_USER=${{ secrets.RPC_USER }}" >> $GITHUB_ENV
+          echo "RPC_PASS=${{ secrets.RPC_PASS }}" >> $GITHUB_ENV
+
+      - name: Run tests
+        id: run-test
+        run: |
+          npm run tests:get-data-from-sheet
+          npm run tests:start
+          
+          if [ $? -ne 0 ]; then
+            echo "Tests failed"
+            echo "test-status=failed" >> $GITHUB_ENV
+            exit 1
+          else
+            echo "Tests passed"
+            echo "test-status=success" >> $GITHUB_ENV
+          fi
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.5.3
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Deploy to test server
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SERVER_IP }} << 'EOF'
+            cd ~/evm_payout_service
+            git pull origin main
+            docker-compose down
+            docker-compose up --build -d
+          EOF
+
+  notify:
+    runs-on: ubuntu-latest
+    if: failure()
+    needs: [build-and-test, deploy]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Notify on test failure
+        run: |
+          echo "Sending notification to Telegram"
+          
+          COMMIT_MESSAGE=$(git log -1 --pretty=%B)
+          COMMIT_AUTHOR_NAME=$(git log -1 --pretty=%an)
+          COMMIT_AUTHOR_URL="https://github.com/${{ github.actor }}"
+          COMMIT_URL="https://github.com/${{ github.repository }}/commit/${GITHUB_SHA}"
+          WORKFLOW_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          
+          FAILURE_STEP=""
+          if [[ "${{ needs.build-and-test.result }}" == "failure" ]]; then
+            FAILURE_STEP="Build and Test"
+          elif [[ "${{ needs.deploy.result }}" == "failure" ]]; then
+            FAILURE_STEP="Deploy"
+          fi
+          
+          MESSAGE="<b>🚨 Pipeline Failed 🚨</b>
+          
+          Failed step: ${FAILURE_STEP}
+          Commit: <a href=\"${COMMIT_URL}\">${COMMIT_MESSAGE}</a>
+          Pipeline URL: <a href=\"${WORKFLOW_URL}\">View Pipeline</a>
+          Commit author: <a href=\"${COMMIT_AUTHOR_URL}\">${COMMIT_AUTHOR_NAME}</a>"
+          
+          RESPONSE=$(curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d "text=${MESSAGE}"\
+            -d "parse_mode=HTML")
+          
+          echo "Telegram API response: $RESPONSE"
