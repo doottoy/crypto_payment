@@ -1,5 +1,5 @@
 # EVM Transaction Service
-[![Build Status](https://github.com/doottoy/evm_payout_service/actions/workflows/deploy.yml/badge.svg)](https://github.com/doottoy/evm_payout_service/actions/workflows/deploy.yml)
+[![CI/CD Pipeline](https://github.com/doottoy/crypto_payment/actions/workflows/depoly.yml/badge.svg)](https://github.com/doottoy/crypto_payment/actions/workflows/depoly.yml)
 
 ## Overview
 
