@@ -167,4 +167,4 @@ npm run lint-fix
 Deployment is managed through GitHub Actions. Changes to the main branch will trigger automatic deployment to the server. Ensure that your configuration and secrets are set up correctly in GitHub Actions.
 
 ## Contributing
-I welcome contributions to the Crypto Payment Service. Please refer to the [contributing guidelines](https://github.com/doottoy/crypto_payment/CONTRIBUTING.md) for more information.
+I welcome contributions to the Crypto Payment Service. Please refer to the [contributing guidelines](https://github.com/doottoy/crypto_payment/blob/main/CONTRIBUTING.md) for more information.
