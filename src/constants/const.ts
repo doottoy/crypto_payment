@@ -9,6 +9,7 @@ export const Const = {
     BSC_TESTNET: 'https://bsc-testnet.publicnode.com',
     ETH_TESTNET: 'https://ethereum-sepolia.publicnode.com',
     ARBITRUM_TESTNET: 'https://sepolia-rollup.arbitrum.io/rpc',
+    BASE_TESTNET: 'https://base-sepolia-rpc.publicnode.com',
 
     // BSC testnet contract
     BSC_CONTRACT: {
@@ -31,6 +32,9 @@ export const Const = {
 
     // Supported Arbitrum payways
     ARBITRUM_PAYWAY: ['arbitrum_eth', 'arbitrum_erc20'],
+
+    // Supported Base payways
+    BASE_PAYWAY: ['base_eth', 'base_erc20'],
 
     // ABI definition for a basic transfer function
     ABI_CONTRACT: [
@@ -69,6 +73,7 @@ export const Const = {
         BSC: 'https://testnet.bscscan.com/tx/',
         ETH: 'https://sepolia.etherscan.io/tx/',
         ARBITRUM: 'https://sepolia.arbiscan.io/tx/',
+        BASE: 'https://sepolia.basescan.org/tx/',
         LTC: 'https://litecoinspace.org/testnet/tx/'
     },
 

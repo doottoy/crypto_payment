@@ -4,7 +4,7 @@
 
 ## Overview
 
-The Crypto Payment Service provides a robust platform for handling cryptocurrency transactions. The service supports both single and multi-send transactions for various cryptocurrencies, including ETH/BSC/Arbitrum (EVM) and Litecoin (LTC).
+The Crypto Payment Service provides a robust platform for handling cryptocurrency transactions. The service supports both single and multi-send transactions for various cryptocurrencies, including ETH/BSC/Arbitrum/Base (EVM) and Litecoin (LTC).
 
 ## Features
 

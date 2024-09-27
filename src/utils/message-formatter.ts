@@ -14,7 +14,9 @@ function formatSuccessMultiSend(payway: string, currency: string, transaction: a
         ? Const.TESTNET_EXPLORER.BSC
         : Const.ARBITRUM_PAYWAY.includes(payway)
             ? Const.TESTNET_EXPLORER.ARBITRUM
-            : Const.TESTNET_EXPLORER.ETH;
+            : Const.BASE_PAYWAY.includes(payway)
+                ? Const.TESTNET_EXPLORER.BASE
+                : Const.TESTNET_EXPLORER.ETH;
 
     // Return a formatted success message
     return `⚙️ Type: Multi Send transaction
@@ -56,7 +58,9 @@ function formatSuccessEVMTransaction(payway: string, currency: string, transacti
         ? Const.TESTNET_EXPLORER.BSC
         : Const.ARBITRUM_PAYWAY.includes(payway)
             ? Const.TESTNET_EXPLORER.ARBITRUM
-            : Const.TESTNET_EXPLORER.ETH;
+            : Const.BASE_PAYWAY.includes(payway)
+                ? Const.TESTNET_EXPLORER.BASE
+                : Const.TESTNET_EXPLORER.ETH;
 
     // Return a formatted success message
     return `⚙️ Type: EVM transaction

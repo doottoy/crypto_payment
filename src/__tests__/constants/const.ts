@@ -24,6 +24,8 @@ export const ConstTest = {
         'eth',
         'erc20',
         'arbitrum_eth',
-        'arbitrum_erc20'
+        'arbitrum_erc20',
+        'base_eth',
+        'base_erc20'
     ]
 };
