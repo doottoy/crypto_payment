@@ -257,7 +257,9 @@ async function getRpcUrl(payway: string): Promise<string> {
         ? Const.BSC_TESTNET
         : Const.ARBITRUM_PAYWAY.includes(payway)
             ? Const.ARBITRUM_TESTNET
-            : Const.ETH_TESTNET;
+            : Const.BASE_PAYWAY.includes(payway)
+                ? Const.BASE_TESTNET
+                : Const.ETH_TESTNET;
 }
 
 /**
