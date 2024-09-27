@@ -1,7 +1,4 @@
-import dotenv from 'dotenv'
 import { AbiItem } from 'web3-utils';
-
-dotenv.config();
 
 // Constants
 export const Const = {
