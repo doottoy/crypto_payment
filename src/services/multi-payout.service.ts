@@ -74,7 +74,6 @@ export class MultiPayoutService {
             this.decimals = decimals;
             this.decimalsCache[tokenContract] = decimals;
         } catch (error) {
-            console.warn(`Failed to get decimals from contract ${tokenContract}. Using default value: ${fallbackDecimals}`);
             this.decimals = fallbackDecimals;
             this.decimalsCache[tokenContract] = fallbackDecimals;
         }

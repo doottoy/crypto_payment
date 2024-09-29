@@ -1,4 +1,7 @@
+import { config } from 'dotenv';
 import { AbiItem } from 'web3-utils';
+
+config();
 
 // Constants
 export const Const = {
@@ -6,10 +9,10 @@ export const Const = {
     MULTI_SEND_GAS_LIMIT: 100000,
 
     // Testnet providers urls
-    BSC_TESTNET: 'https://bsc-testnet.publicnode.com',
-    ETH_TESTNET: 'https://ethereum-sepolia.publicnode.com',
-    ARBITRUM_TESTNET: 'https://arbitrum-sepolia-rpc.publicnode.com',
-    BASE_TESTNET: 'https://base-sepolia-rpc.publicnode.com',
+    BSC_TESTNET: `https://bsc-testnet.infura.io/v3/${process.env.INFURA_API_KEY}`,
+    ETH_TESTNET: `https://sepolia.infura.io/v3/${process.env.INFURA_API_KEY}`,
+    ARBITRUM_TESTNET: `https://arbitrum-sepolia.infura.io/v3/${process.env.INFURA_API_KEY}`,
+    BASE_TESTNET: `https://base-sepolia.infura.io/v3/${process.env.INFURA_API_KEY}`,
 
     // Supported ETH payways
     ETH_PAYWAY: ['eth', 'erc20'],

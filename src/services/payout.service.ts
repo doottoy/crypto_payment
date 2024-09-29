@@ -58,7 +58,6 @@ export class PayoutService {
             this.decimalsCache[tokenContract] = decimalsNumber;
             return decimalsNumber;
         } catch {
-            console.warn(`Failed to get decimals from contract ${tokenContract}. Using default value: ${fallbackDecimals}`);
             return this.decimalsCache[tokenContract] = fallbackDecimals;
         }
     }
@@ -76,21 +75,19 @@ export class PayoutService {
     }
 
     /**
-     * Estimates the gas required for a transaction.
-     * @param tx - The transaction object.
-     * @returns The estimated gas.
-    */
-    private async estimateGas(tx: object): Promise<number> {
-        return await this.web3.eth.estimateGas(tx);
-    }
-
-    /**
      * Method allows access to the provider used by the service (need only for test).
      *
      * @returns The provider instance used by the service.
     */
     getProvider(): HDWalletProvider {
         return this.provider;
+
+        // // Standard ERC-20 token transfer
+        // const decimals = await this.fetchDecimals(contract);
+        // const amountInBase = this.convertToBaseUnit(amount, decimals);
+        // const tokenContract = new this.web3.eth.Contract(Const.ABI_CONTRACT, contract);
+        // const data = tokenContract.methods.transfer(payee_address, amountInBase).encodeABI();
+        // tx = { ...tx, to: contract, data };
     }
 
     /**
@@ -103,7 +100,7 @@ export class PayoutService {
      * @param currency - The currency being used (e.g., ETH, BNB).
      * @returns The transaction hash of the successful transaction.
     */
-    async sendTransaction(payee_address: string, amount: string, contract: string, currency: string): Promise<string> {
+    async sendTransaction(payee_address: string, amount: string, contract: string, currency: string) {
         try {
             // Get current nonce and gas price
             const [actualNonce, gasPrice] = await Promise.all([
@@ -111,42 +108,46 @@ export class PayoutService {
                 this.web3.eth.getGasPrice()
             ]);
 
-            let tx: any = {
-                from: this.senderAddress,
-                gasPrice,
-                nonce: actualNonce,
-                timeout: 300000
-            };
-
+            let transaction;
             if (!contract) {
-                // Native token transfer
-                const value = this.convertToBaseUnit(amount, 18);
-                tx = { ...tx, to: payee_address, value };
+                // If no contract address is provided, send native tokens (e.g., ETH, BNB)
+                transaction = await this.web3.eth.sendTransaction({
+                    from: this.senderAddress,
+                    to: payee_address,
+                    value: this.web3.utils.toWei(amount, 'ether'),
+                    gasPrice: Number(gasPrice) * 1.7,
+                    nonce: actualNonce
+                });
             } else {
-                // Standard ERC-20 token transfer
+                // If a contract address is provided, send standard-20 tokens
+                const assetContract = new this.web3.eth.Contract(Const.ABI_CONTRACT, contract);
+
                 const decimals = await this.fetchDecimals(contract);
-                const amountInBase = this.convertToBaseUnit(amount, decimals);
-                const tokenContract = new this.web3.eth.Contract(Const.ABI_CONTRACT, contract);
-                const data = tokenContract.methods.transfer(payee_address, amountInBase).encodeABI();
-                tx = { ...tx, to: contract, data };
+                amount = this.convertToBaseUnit(amount, decimals)
+
+                // Estimate the gas required for the transaction
+                const gasEstimation = await assetContract.methods.transfer(payee_address, amount).estimateGas({ from: this.senderAddress });
+
+                // Send the standard-20 token transaction
+                transaction = await assetContract.methods.transfer(payee_address, amount).send({
+                    from: this.senderAddress,
+                    gas: gasEstimation,
+                    gasPrice: Number(gasPrice) * 1.7,
+                    nonce: actualNonce,
+                    timeout: 300000
+                });
             }
-
-            // Estimate and set gas limit with buffer
-            const estimatedGas = await this.estimateGas(tx);
-            tx.gas = Math.min(estimatedGas + 10000, Const.MULTI_SEND_GAS_LIMIT);
-
-            // Signed and send signed transaction
-            const signedTx = await this.web3.eth.accounts.signTransaction(tx, this.privateKey);
-            const transaction = await this.web3.eth.sendSignedTransaction(signedTx.rawTransaction!);
 
             // Log and notify about the successful transaction
             console.log(notifierMessage.formatSuccessEVMTransaction(this.payway, currency, transaction));
             await modules.sendMessageToTelegram(notifierMessage.formatSuccessEVMTransaction(this.payway, currency, transaction));
 
+            // Return the transaction hash
             return transaction.transactionHash;
         } catch (error) {
-            // Notify about the error
-            await modules.sendMessageToTelegram(notifierMessage.formatErrorEVM(this.payway, currency, error));
+            // Log and notify about the error in the transaction
+            console.log(notifierMessage.formatErrorEVM(this.payway, currency, {}));
+            await modules.sendMessageToTelegram(notifierMessage.formatErrorEVM(this.payway, currency, {}));
             throw error;
         }
     }
