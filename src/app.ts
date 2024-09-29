@@ -44,7 +44,7 @@ app.post('/payout/evm/multi_send', async (req: Request, res: Response) => {
 
     // Initialize the MultiPayoutService with the specified payment way and private key
     const multiSendService = new MultiPayoutService(payway, private_key);
-    await multiSendService.init();
+    await multiSendService.init(multi_send_contract);
 
     try {
         // Execute the multi-send transaction and return the transaction hash

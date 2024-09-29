@@ -1,4 +1,7 @@
+import { config } from 'dotenv';
 import { AbiItem } from 'web3-utils';
+
+config();
 
 // Constants
 export const Const = {
@@ -10,16 +13,6 @@ export const Const = {
     ETH_TESTNET: 'https://ethereum-sepolia.publicnode.com',
     ARBITRUM_TESTNET: 'https://arbitrum-sepolia-rpc.publicnode.com',
     BASE_TESTNET: 'https://base-sepolia-rpc.publicnode.com',
-
-    // BSC testnet contract
-    BSC_CONTRACT: {
-        BEP20_BUSD: '0xeD24FC36d5Ee211Ea25A80239Fb8C4Cfd80f12Ee'
-    },
-
-    // ETH testnet contract
-    ETH_CONTRACT: {
-        ERC20_USDT: '0x54C6FC56281F42D4166f8De0A84c0ea62C1c9873'
-    },
 
     // Supported ETH payways
     ETH_PAYWAY: ['eth', 'erc20'],
@@ -65,6 +58,13 @@ export const Const = {
             payable: true,
             stateMutability: 'payable',
             type: 'function'
+        },
+        {
+            constant: true,
+            inputs: [],
+            name: "decimals",
+            outputs: [{ name: "", type: "uint8" }],
+            type: "function",
         }
     ] as AbiItem[],
 
@@ -76,6 +76,16 @@ export const Const = {
         BASE: 'https://sepolia.basescan.org/tx/',
         LTC: 'https://litecoinspace.org/testnet/tx/'
     },
+
+    // Decimals method
+    DECIMALS: {
+        0: 'wei',
+        3: 'gwei',
+        6: 'mwei',
+        9: 'gwei',
+        12: 'tera',
+        18: 'ether'
+    } as Record<number, string>,
 
     // Method and rpc for request
     RPC: '2.0' as string,
