@@ -3,23 +3,13 @@ import { AbiItem } from 'web3-utils';
 // Constants
 export const Const = {
     // Gas limit for multi-send transactions
-    MULTI_SEND_GAS_LIMIT: 1000000,
+    MULTI_SEND_GAS_LIMIT: 100000,
 
     // Testnet providers urls
-    BSC_TESTNET: 'https://bsc-testnet.publicnode.com',
-    ETH_TESTNET: 'https://ethereum-sepolia.publicnode.com',
-    ARBITRUM_TESTNET: 'https://arbitrum-sepolia-rpc.publicnode.com',
-    BASE_TESTNET: 'https://base-sepolia-rpc.publicnode.com',
-
-    // BSC testnet contract
-    BSC_CONTRACT: {
-        BEP20_BUSD: '0xeD24FC36d5Ee211Ea25A80239Fb8C4Cfd80f12Ee'
-    },
-
-    // ETH testnet contract
-    ETH_CONTRACT: {
-        ERC20_USDT: '0x54C6FC56281F42D4166f8De0A84c0ea62C1c9873'
-    },
+    BSC_TESTNET: `https://bsc-testnet.infura.io/v3/${process.env.INFURA_API_KEY}`,
+    ETH_TESTNET: `https://sepolia.infura.io/v3/${process.env.INFURA_API_KEY}`,
+    ARBITRUM_TESTNET: `https://arbitrum-sepolia.infura.io/v3/${process.env.INFURA_API_KEY}`,
+    BASE_TESTNET: `https://base-sepolia.infura.io/v3/${process.env.INFURA_API_KEY}`,
 
     // Supported ETH payways
     ETH_PAYWAY: ['eth', 'erc20'],
@@ -65,6 +55,13 @@ export const Const = {
             payable: true,
             stateMutability: 'payable',
             type: 'function'
+        },
+        {
+            constant: true,
+            inputs: [],
+            name: "decimals",
+            outputs: [{ name: "", type: "uint8" }],
+            type: "function",
         }
     ] as AbiItem[],
 
@@ -76,6 +73,16 @@ export const Const = {
         BASE: 'https://sepolia.basescan.org/tx/',
         LTC: 'https://litecoinspace.org/testnet/tx/'
     },
+
+    // Decimals method
+    DECIMALS: {
+        0: 'wei',
+        3: 'gwei',
+        6: 'mwei',
+        9: 'gwei',
+        12: 'tera',
+        18: 'ether'
+    } as Record<number, string>,
 
     // Method and rpc for request
     RPC: '2.0' as string,

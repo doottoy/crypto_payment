@@ -68,7 +68,7 @@ describe('Test EVM Transactions', () => {
 
                     // Initialize the MultiPayoutService with necessary parameters
                     service = new MultiPayoutService(payway, private_key);
-                    await service.init();
+                    await service.init(multi_send_contract);
 
                     // @ts-ignore
                     // Send the transaction and retrieve the hash

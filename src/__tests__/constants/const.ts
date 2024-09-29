@@ -8,7 +8,7 @@ export const ConstTest = {
     CONFIRMATION: 15 as number,
     SINGLE: 'single' as string,
     CHANGED: '[CHANGED]' as string,
-    PRIVATE_KEY: 'privateKey' as string,
+    PRIVATE_KEY: '{{privateKey}}' as string,
     APPLICATION_JSON: 'application/json' as string,
     PATH_FOR_TEST_DATA: './src/__tests__/test-data/' as string,
 
