@@ -9,10 +9,10 @@ export const Const = {
     MULTI_SEND_GAS_LIMIT: 100000,
 
     // Testnet providers urls
-    BSC_TESTNET: `https://bsc-testnet.infura.io/v3/${process.env.INFURA_API_KEY}`,
-    ETH_TESTNET: `https://sepolia.infura.io/v3/${process.env.INFURA_API_KEY}`,
-    ARBITRUM_TESTNET: `https://arbitrum-sepolia.infura.io/v3/${process.env.INFURA_API_KEY}`,
-    BASE_TESTNET: `https://base-sepolia.infura.io/v3/${process.env.INFURA_API_KEY}`,
+    BSC_TESTNET: `https://bsc-testnet.infura.io/v3/7a4583d0b3014189bbff7f24582fc5ea`,
+    ETH_TESTNET: `https://sepolia.infura.io/v3/7a4583d0b3014189bbff7f24582fc5ea`,
+    ARBITRUM_TESTNET: `https://arbitrum-sepolia.infura.io/v3/7a4583d0b3014189bbff7f24582fc5ea`,
+    BASE_TESTNET: `https://base-sepolia.infura.io/v3/7a4583d0b3014189bbff7f24582fc5ea`,
 
     // Supported ETH payways
     ETH_PAYWAY: ['eth', 'erc20'],
