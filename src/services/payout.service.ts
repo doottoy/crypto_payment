@@ -114,7 +114,8 @@ export class PayoutService {
             let tx: any = {
                 from: this.senderAddress,
                 gasPrice,
-                nonce: actualNonce
+                nonce: actualNonce,
+                timeout: 300000
             };
 
             if (!contract) {

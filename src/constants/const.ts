@@ -6,10 +6,10 @@ export const Const = {
     MULTI_SEND_GAS_LIMIT: 100000,
 
     // Testnet providers urls
-    BSC_TESTNET: 'https://bsc-testnet.infura.io/v3/7a4583d0b3014189bbff7f24582fc5ea',
-    ETH_TESTNET: 'https://sepolia.infura.io/v3/7a4583d0b3014189bbff7f24582fc5ea',
-    ARBITRUM_TESTNET: 'https://arbitrum-sepolia.infura.io/v3/7a4583d0b3014189bbff7f24582fc5ea',
-    BASE_TESTNET: 'https://base-sepolia.infura.io/v3/7a4583d0b3014189bbff7f24582fc5ea',
+    BSC_TESTNET: 'https://bsc-testnet.publicnode.com',
+    ETH_TESTNET: 'https://ethereum-sepolia.publicnode.com',
+    ARBITRUM_TESTNET: 'https://arbitrum-sepolia-rpc.publicnode.com',
+    BASE_TESTNET: 'https://base-sepolia-rpc.publicnode.com',
 
     // Supported ETH payways
     ETH_PAYWAY: ['eth', 'erc20'],
