@@ -12,31 +12,32 @@
     "tests:get-data-from-sheet": "ts-node src/__tests__/utils/get-data-from-sheet.ts 0 cryptoPaymentTestData.json"
   },
   "dependencies": {
-    "uuid": "^10.0.0",
+    "@truffle/hdwallet-provider": "^2.1.15",
     "dotenv": "^16.4.5",
+    "eth-block-tracker": "^8.1.0",
     "express": "^4.17.21",
-    "node-fetch": "^2.7.0",
-    "google-spreadsheet": "^4.1.2",
     "google-auth-library": "^9.13.0",
-    "@truffle/hdwallet-provider": "^2.1.15"
+    "google-spreadsheet": "^4.1.2",
+    "node-fetch": "^2.7.0",
+    "uuid": "^10.0.0"
   },
   "devDependencies": {
-    "chai": "^5.1.1",
-    "eslint": "8.22.0",
-    "mocha": "^10.7.3",
-    "ts-node": "^10.4.0",
-    "typescript": "^4.5.4",
-    "@types/web3": "^1.2.2",
     "@types/chai": "^4.3.17",
-    "@types/uuid": "^10.0.0",
+    "@types/express": "^4.17.21",
+    "@types/google-spreadsheet": "^4.0.0",
     "@types/mocha": "^10.0.7",
     "@types/node": "^16.11.11",
-    "@types/express": "^4.17.21",
     "@types/node-fetch": "^2.6.11",
-    "eslint-plugin-import": "^2.25.2",
-    "@types/google-spreadsheet": "^4.0.0",
+    "@types/uuid": "^10.0.0",
+    "@types/web3": "^1.2.2",
+    "@types/web3-provider-engine": "^14.0.4",
+    "chai": "^5.1.1",
+    "eslint": "8.22.0",
     "eslint-config-airbnb-base": "^15.0.0",
-    "@types/web3-provider-engine": "^14.0.4"
+    "eslint-plugin-import": "^2.25.2",
+    "mocha": "^10.7.3",
+    "ts-node": "^10.4.0",
+    "typescript": "^4.5.4"
   },
   "license": "MIT"
 }
