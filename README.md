@@ -4,7 +4,7 @@
 
 ## Overview
 
-The Crypto Payment Service provides a robust platform for handling cryptocurrency transactions. The service supports both single and multi-send transactions for various cryptocurrencies, including ETH/BSC/Arbitrum/Base (EVM) and Litecoin (LTC).
+The Crypto Payment Service provides a robust platform for handling cryptocurrency transactions. The service supports both single and multi-send transactions for various cryptocurrencies, including ETH/BSC/Arbitrum/Base (EVM) & Litecoin (LTC) & Solana / SPL 2022 token (devnet).
 
 ## Features
 
@@ -131,6 +131,42 @@ To get started with the Crypto Payment Service, follow these steps:
     "comment": "Payment for services",
     "minconf": 1,
     "account": "account_name"
+  }
+}
+```
+**Solana SOL token**
+
+- **Endpoint:** `/payout/solana`
+- **Method:** POST
+- **Request Body:**
+```json
+{
+  "data": {
+    "payway": "solana-devnet",
+    "currency": "SOL",
+    "amount": "0.1",
+    "payee_address": "5x...",
+    "private_key": "your_private_key",
+    "token_mint": null,
+    "is_token_2022": false
+  }
+}
+```
+**Solana SPL 2022 token**
+
+- **Endpoint:** `/payout/solana`
+- **Method:** POST
+- **Request Body:**
+```json
+{
+  "data": {
+    "payway": "solana-devnet",
+    "currency": "USDT",
+    "amount": "0.1",
+    "payee_address": "5x...",
+    "private_key": "your_private_key",
+    "token_mint": "4GrDFae9bPE6Be5sCP3ec91zxyZwiJYfopoTqp77UzNi",
+    "is_token_2022": true
   }
 }
 ```
