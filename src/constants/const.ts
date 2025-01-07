@@ -13,6 +13,7 @@ export const Const = {
     ETH_TESTNET: 'https://ethereum-sepolia.publicnode.com',
     ARBITRUM_TESTNET: 'https://arbitrum-sepolia-rpc.publicnode.com',
     BASE_TESTNET: 'https://base-sepolia-rpc.publicnode.com',
+    SOLANA_DEVNET: 'https://api.devnet.solana.com',
 
     // Supported ETH payways
     ETH_PAYWAY: ['eth', 'erc20'],
@@ -74,7 +75,8 @@ export const Const = {
         ETH: 'https://sepolia.etherscan.io/tx/',
         ARBITRUM: 'https://sepolia.arbiscan.io/tx/',
         BASE: 'https://sepolia.basescan.org/tx/',
-        LTC: 'https://litecoinspace.org/testnet/tx/'
+        LTC: 'https://litecoinspace.org/testnet/tx/',
+        SOLANA: 'https://solscan.io/tx/'
     },
 
     // Decimals method

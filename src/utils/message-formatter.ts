@@ -93,16 +93,15 @@ function formatSuccessLTCTransaction(payway: string, currency: string, transacti
  * Formats an error message for an EVM transaction.
  * @param payway - The payway used for the transaction.
  * @param currency - The currency involved in the transaction.
- * @param transaction - The transaction details, including hash and error message.
+ * @param error - The error message.
  * @returns A formatted error message string.
  */
-function formatErrorEVM(payway: string, currency: string, transaction: any): string {
+function formatErrorEVM(payway: string, currency: string, error: any): string {
     // Return a formatted error message
     return `❌ Type: Error
 🌐 Blockchain: ${payway.toUpperCase()}
 💸 Currency: ${currency}
-📜 Transaction hash: ${transaction.transactionHash || 'N/A'}
-❗ Error: ${transaction.error || 'Unknown error'}`;
+❗ Error: ${JSON.stringify(error)  || 'Unknown error'}`;
 }
 
 /**
@@ -125,16 +124,15 @@ function formatErrorLTC(payway: string, currency: string, transaction: any): str
  * Formats an error message for a multi-send transaction.
  * @param payway - The payway used for the transaction.
  * @param currency - The currency involved in the transaction.
- * @param transaction - The transaction details, including hash and error message.
+ * @param error - The error message.
  * @returns A formatted error message string.
  */
-function formatErrorMultiSend(payway: string, currency: string, transaction: any): string {
+function formatErrorMultiSend(payway: string, currency: string, error: any): string {
     // Return a formatted error message
     return `❌ Type: Error
 🌐 Blockchain: ${payway.toUpperCase()}
 💸 Currency: ${currency}
-📜 Transaction hash: ${transaction.transactionHash || 'N/A'}
-❗ Error: ${transaction.error || 'Unknown error'}`;
+❗ Error: ${JSON.stringify(error) || 'Unknown error'}`;
 }
 
 /**
@@ -153,13 +151,47 @@ function formatErrorMultiSendLTC(payway: string, currency: string, transaction: 
 ❗ Error: ${transaction.error || 'Unknown error'}`;
 }
 
+/**
+ * Formats a success message for a standard Solana transaction.
+ * @param currency - The currency involved in the transaction.
+ * @param transaction - The transaction details, including hash and sender address.
+ * @param addressSender - Address sender
+ * @param amount - The amount to transfer
+ * @returns A formatted success message string.
+ */
+function formatSuccessSolanaTransaction(currency: string, transaction: any, addressSender: string, amount: string): string {
+    // Return a formatted success message
+    return `⚙️ Type: Solana transaction
+⏰ Time: [${new Date().toLocaleString()}]
+💰 Amount: ${amount}
+💸 Currency: ${currency}
+📜 Transaction hash: ${transaction}
+👤 Address sender: ${addressSender}
+🔍 View in explorer: ${Const.TESTNET_EXPLORER.SOLANA}${transaction}?cluster=devnet`;
+}
+
+/**
+ * Formats an error message for an Solana transaction.
+ * @param currency - The currency involved in the transaction.
+ * @param transaction - The transaction details, including hash and error message.
+ * @returns A formatted error message string.
+ */
+function formatErrorSolana(currency: string, error: any): string {
+    // Return a formatted error message
+    return `❌ Type: Solana Error
+💸 Currency: ${currency}
+❗ Error: ${error|| 'Unknown error'}`;
+}
+
 export const notifierMessage = {
     formatErrorEVM,
     formatErrorLTC,
+    formatErrorSolana,
     formatErrorMultiSend,
     formatSuccessMultiSend,
     formatErrorMultiSendLTC,
     formatSuccessMultiSendLTC,
     formatSuccessEVMTransaction,
-    formatSuccessLTCTransaction
+    formatSuccessLTCTransaction,
+    formatSuccessSolanaTransaction
 };

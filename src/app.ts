@@ -5,9 +5,11 @@ import express, { Request, Response, NextFunction } from 'express';
 import { PayoutService } from './services/payout.service';
 import { LtcPayoutService } from './services/ltc.payout.service';
 import { MultiPayoutService } from './services/multi-payout.service';
+import { SolanaPayoutService } from './services/solana.payout.service';
 import { LtcMultiPayoutService } from './services/ltc.multi-payout.service';
 
 /* Interface imports */
+import { SolanaPayoutRequestBody } from './interfaces/solana.payout.interface';
 import { PayoutRequestBody, MultiPayoutRequestBody } from './interfaces/payout.interface';
 import { LtcPayoutRequestBody, LtcSendManyPayoutRequestBody } from './interfaces/ltc.payout.interface';
 
@@ -92,24 +94,30 @@ app.post('/payout/ltc/multi_send', async (req: Request, res: Response, next: Nex
     }
 });
 
+/* Endpoint for processing Solana transactions */
+app.post('/payout/solana', async (req: Request, res: Response, next: NextFunction) => {
+    // Destructure the request body to extract payout details
+    const { payway, private_key, currency, amount, payee_address, token_mint, is_token_2022 }: SolanaPayoutRequestBody['data'] = req.body.data;
+
+    // Initialize the SolanaPayoutService
+    const solanaService = new SolanaPayoutService(payway, private_key);
+
+    try {
+        await solanaService.init();
+        if (!currency) {
+            return res.status(400).json({ error: 'Currency is required' });
+        }
+
+        // Send the transaction and return the transaction hash
+        const txHash = await solanaService.sendTransaction(payee_address, amount,  currency, token_mint, is_token_2022 || false);
+        res.json({ tx_id: txHash });
+    } catch (error) {
+        // Pass the error to the global error handler
+        next(error);
+    }
+});
+
 /* Start the Express server */
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
-});
-
-/* Global error handling middleware */
-app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-    console.error(`Global error handler caught an error: ${err.stack || err}`);
-    // Send a generic 500 error response
-    res.status(500).json({ error: 'Server Error' });
-});
-
-/* Handle unhandled promise rejections */
-process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
-    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
-
-/* Handle uncaught exceptions */
-process.on('uncaughtException', (err: Error) => {
-    console.error('Uncaught Exception thrown:', err);
 });

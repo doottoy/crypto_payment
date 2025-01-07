@@ -31,7 +31,7 @@ export class MultiPayoutService {
      * Constructs a new instance of MultiPayoutService.
      * @param payway - The payment method being used.
      * @param privateKey - The private key of the sender's wallet.
-    */
+     */
     constructor(private payway: string, private privateKey: string) {
         this.provider = {} as HDWalletProvider;
         this.web3 = {} as Web3;
@@ -44,7 +44,7 @@ export class MultiPayoutService {
      * Initializes the provider, web3 instance, and contract.
      * Should be called before sending transactions.
      * @param multiSendContractAddress - The address of the multiSend contract (matches tokenContractAddress)
-    */
+     */
     async init(multiSendContractAddress: string) {
         this.provider = new HDWalletProvider({
             privateKeys: [this.privateKey],
@@ -62,7 +62,7 @@ export class MultiPayoutService {
      * Fetches the decimals from the token contract.
      * @param tokenContract - The address of the token contract.
      * @param fallbackDecimals - The fallback decimals if the contract does not implement decimals().
-    */
+     */
     async fetchDecimals(tokenContract: string, fallbackDecimals: number = 18): Promise<void> {
         if (this.decimalsCache[tokenContract] !== undefined) {
             this.decimals = this.decimalsCache[tokenContract];
@@ -83,7 +83,7 @@ export class MultiPayoutService {
      * Converts the amount to base units based on the token's decimals.
      * @param amount - The amount to convert.
      * @returns The amount in base units as a string.
-    */
+     */
     private convertToBaseUnit(amount: string): string {
         const decimalsMap: { [key: number]: string } = Const.DECIMALS;
         const unit = decimalsMap[this.decimals];
@@ -95,7 +95,7 @@ export class MultiPayoutService {
      * Method allows access to the provider used by the service.
      *
      * @returns The provider instance used by the service.
-    */
+     */
     getProvider(): HDWalletProvider {
         return this.provider;
     }
@@ -106,7 +106,7 @@ export class MultiPayoutService {
      * @param multiSendContract - The contract address used for multi-send (matches tokenContractAddress).
      * @param currency - The token contract address being sent.
      * @returns The transaction hash.
-    */
+     */
     async multiSend(recipients: Recipient[], multiSendContract: string, currency: string): Promise<string> {
         try {
             // Get decimals for the token
@@ -159,8 +159,9 @@ export class MultiPayoutService {
             return transaction.transactionHash;
         } catch (error) {
             // Log and notify about the transaction error
-            console.log(notifierMessage.formatErrorMultiSend(this.payway, currency, {}));
-            await modules.sendMessageToTelegram(notifierMessage.formatErrorMultiSend(this.payway, currency, {}));
+            console.log(notifierMessage.formatErrorMultiSend(this.payway, currency, JSON.stringify(error)));
+            await modules.sendMessageToTelegram(notifierMessage.formatErrorMultiSend(this.payway, currency, error));
+
             throw error;
         }
     }
