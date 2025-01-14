@@ -4,13 +4,19 @@
 
 ## Overview
 
-The Crypto Payment Service provides a robust platform for handling cryptocurrency transactions. The service supports both single and multi-send transactions for various cryptocurrencies, including ETH/BSC/Arbitrum/Base (EVM) & Litecoin (LTC) & Solana / SPL 2022 token (devnet).
+The Crypto Payment Service provides a robust platform for handling cryptocurrency transactions. The service supports both single and multi-send transactions for various cryptocurrencies, including: 
+- BSC Testnet
+- ETH Sepolia
+- Base Sepolia
+- Arbitrum Sepolia
+- Litecoin
+- Solana & SPL 2022 token (devnet) 
+- Tron Nile
 
 ## Features
 
 - **Single Payouts:** Transfer funds to a single address with specified amount.
 - **Multi-Send:** Efficiently send funds to multiple addresses in a single transaction.
-- **Support for EVM and LTC:** Includes support for Ethereum-compatible networks and Litecoin transactions.
 - **Error Handling and Notifications:** Comprehensive error handling with notifications sent via Telegram.
 - **Environment Configurations:** Flexible configuration through environment variables.
 
@@ -66,7 +72,7 @@ To get started with the Crypto Payment Service, follow these steps:
 ```json
 {
   "data": {
-    "payway": "ETH",
+    "payway": "eth",
     "payee_address": "0x...",
     "amount": "0.1",
     "contract": "0x...",
@@ -84,7 +90,7 @@ To get started with the Crypto Payment Service, follow these steps:
 ```json
 {
   "data": {
-    "payway": "ETH",
+    "payway": "eth",
     "recipients": [
       {"address": "0x...", "amount": "0.05"},
       {"address": "0x...", "amount": "0.05"}
@@ -142,7 +148,7 @@ To get started with the Crypto Payment Service, follow these steps:
 ```json
 {
   "data": {
-    "payway": "solana-devnet",
+    "payway": "sol",
     "currency": "SOL",
     "amount": "0.1",
     "payee_address": "5x...",
@@ -160,13 +166,52 @@ To get started with the Crypto Payment Service, follow these steps:
 ```json
 {
   "data": {
-    "payway": "solana-devnet",
+    "payway": "spl",
     "currency": "USDT",
     "amount": "0.1",
     "payee_address": "5x...",
     "private_key": "your_private_key",
-    "token_mint": "4GrDFae9bPE6Be5sCP3ec91zxyZwiJYfopoTqp77UzNi",
+    "token_mint": "4...",
     "is_token_2022": true
+  }
+}
+```
+
+**Single Tron Payout**
+
+- **Endpoint:** `/payout/tron`
+- **Method:** POST
+- **Request Body:**
+```json
+{
+  "data": {
+    "payway": "tron", // tron or trc20
+    "payee_address": "T...",
+    "amount": "0.1",
+    "contract": "0x...", // optional for send trc20 token
+    "currency": "TRX", // TRX or USDT
+    "private_key": "your_private_key"
+  }
+}
+```
+
+**Multi-Send Tron**
+
+- **Endpoint:** `/payout/tron/multi_send`
+- **Method:** `POST`
+- **Request Body:**
+```json
+{
+  "data": {
+    "payway": "tron", // tron or trc20
+    "recipients": [
+      {"address": "T...", "amount": "0.05"},
+      {"address": "T...", "amount": "0.05"}
+    ],
+    "private_key": "your_private_key",
+    "currency": "TRX", // TRX or USDT
+    "multi_send_contract": "T...",
+    "token_contract": "T..." // optional for send trc20 token
   }
 }
 ```

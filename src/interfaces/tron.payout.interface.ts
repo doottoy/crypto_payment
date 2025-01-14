@@ -16,7 +16,7 @@ export interface PayoutRequestBody {
     data: BaseRequestBody & {
         payee_address: string;
         amount: string;
-        contract: string;
+        contract: string; // Для EVM это адрес токена, для Tron — TRC20
     };
 }
 
@@ -28,7 +28,5 @@ export interface MultiPayoutRequestBody {
     data: BaseRequestBody & {
         recipients: Array<{ address: string; amount: string }>;
         multi_send_contract: string;
-        token_contract?: string;
     };
 }
-

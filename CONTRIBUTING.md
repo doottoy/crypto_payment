@@ -10,7 +10,7 @@ Thank you for your interest in contributing to the Crypto Payment Service! I val
 2. **Clone Your Fork**
    - Clone your fork to your local machine:
      ```bash
-     git clone https://github.com/your-username/your-repository.git
+     git clone https://github.com/doottoy/crypto_payment.git
 
 3. **Create a New Branch**
     - Create a new branch for your changes:
