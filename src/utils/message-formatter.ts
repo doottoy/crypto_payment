@@ -171,9 +171,9 @@ function formatSuccessSolanaTransaction(currency: string, transaction: any, addr
 }
 
 /**
- * Formats an error message for an Solana transaction.
+ * Formats an error message for Solana transaction.
  * @param currency - The currency involved in the transaction.
- * @param transaction - The transaction details, including hash and error message.
+ * @param error - The transaction details, including hash and error message.
  * @returns A formatted error message string.
  */
 function formatErrorSolana(currency: string, error: any): string {
@@ -183,9 +183,72 @@ function formatErrorSolana(currency: string, error: any): string {
 ❗ Error: ${error|| 'Unknown error'}`;
 }
 
+/**
+ * Formats a success message for a standard Tron transaction.
+ * @param currency - The currency involved in the transaction.
+ * @param transaction - The transaction details, including hash and sender address.
+ * @param addressSender - Address sender
+ * @param amount - The amount to transfer
+ * @returns A formatted success message string.
+ */
+function formatSuccessTronTransaction(amount: string, addressSender: string, currency: any, transaction: any): string {
+    // Return a formatted success message
+    return `⚙️ Type: Tron transaction
+⏰ Time: [${new Date().toLocaleString()}]
+💰 Amount: ${amount}
+💸 Currency: ${currency}
+👤 Address sender: ${addressSender}
+📜 Transaction hash: ${transaction}
+🔍 View in explorer: ${Const.TESTNET_EXPLORER.NILE_TRON}${transaction}`;
+}
+
+/**
+ * Formats an error message for Tron transaction.
+ * @param currency - The currency involved in the transaction.
+ * @param error - The transaction details, including hash and error message.
+ * @returns A formatted error message string.
+ */
+function formatErrorTron(currency: string, error: any): string {
+    // Return a formatted error message
+    return `❌ Type: Tron Error
+💸 Currency: ${currency}
+❗ Error: ${error|| 'Unknown error'}`;
+}
+
+/**
+ * Formats a success message for a standard Tron multi send transaction.
+ * @param currency - The currency involved in the transaction.
+ * @param transaction - The transaction details, including hash and sender address.
+ * @param addressSender - Address sender
+ * @returns A formatted success message string.
+ */
+function formatSuccessTronMultiSendTransaction(currency: any, transaction: any): string {
+    // Return a formatted success message
+    return `⚙️ Type: Tron Multi Send Transaction
+⏰ Time: [${new Date().toLocaleString()}]
+💸 Currency: ${currency}
+📜 Transaction hash: ${transaction}
+🔍 View in explorer: ${Const.TESTNET_EXPLORER.NILE_TRON}${transaction}`;
+}
+
+/**
+ * Formats an error message for Tron transaction.
+ * @param currency - The currency involved in the transaction.
+ * @param error - The transaction details, including hash and error message.
+ * @returns A formatted error message string.
+ */
+function formatErrorTronMultiSendTransaction(currency: string, error: any): string {
+    // Return a formatted error message
+    return `❌ Type: Tron Multi Send Error
+💸 Currency: ${currency}
+❗ Error: ${error|| 'Unknown error'}`;
+}
+
+
 export const notifierMessage = {
     formatErrorEVM,
     formatErrorLTC,
+    formatErrorTron,
     formatErrorSolana,
     formatErrorMultiSend,
     formatSuccessMultiSend,
@@ -193,5 +256,8 @@ export const notifierMessage = {
     formatSuccessMultiSendLTC,
     formatSuccessEVMTransaction,
     formatSuccessLTCTransaction,
-    formatSuccessSolanaTransaction
+    formatSuccessTronTransaction,
+    formatSuccessSolanaTransaction,
+    formatErrorTronMultiSendTransaction,
+    formatSuccessTronMultiSendTransaction
 };

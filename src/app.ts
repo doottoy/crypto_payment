@@ -4,9 +4,11 @@ import express, { Request, Response, NextFunction } from 'express';
 /* Service imports */
 import { PayoutService } from './services/payout.service';
 import { LtcPayoutService } from './services/ltc.payout.service';
+import { TronPayoutService } from './services/tron.payout.service';
 import { MultiPayoutService } from './services/multi-payout.service';
 import { SolanaPayoutService } from './services/solana.payout.service';
 import { LtcMultiPayoutService } from './services/ltc.multi-payout.service';
+import { TronMultiPayoutService } from './services/tron.multi-payout.service';
 
 /* Interface imports */
 import { SolanaPayoutRequestBody } from './interfaces/solana.payout.interface';
@@ -110,6 +112,43 @@ app.post('/payout/solana', async (req: Request, res: Response, next: NextFunctio
 
         // Send the transaction and return the transaction hash
         const txHash = await solanaService.sendTransaction(payee_address, amount,  currency, token_mint, is_token_2022 || false);
+        res.json({ tx_id: txHash });
+    } catch (error) {
+        // Pass the error to the global error handler
+        next(error);
+    }
+});
+
+/* Endpoint for processing Tron transactions */
+app.post('/payout/tron', async (req: Request, res: Response, next: NextFunction) => {
+    // Destructure the request body to extract payout details
+    const { payway, private_key, currency, payee_address, amount, contract } = (req.body as PayoutRequestBody).data;
+
+    // Initialize the TronPayoutService
+    const tronService = new TronPayoutService(payway, private_key);
+
+    try {
+        await tronService.init();
+        // Send the transaction and return the transaction hash
+        const txHash = await tronService.sendTransaction(payee_address, amount, contract, currency);
+        res.json({ tx_id: txHash });
+    } catch (error) {
+        // Pass the error to the global error handler
+        next(error);
+    }
+});
+
+app.post('/payout/tron/multi_send', async (req: Request, res: Response, next: NextFunction) => {
+    // Destructure the request body to extract multi-send payout details
+    const { payway, private_key, currency, multi_send_contract, recipients, token_contract } = (req.body as MultiPayoutRequestBody).data;
+
+    // Initialize the TronMultiPayoutService with the specified payment way and private key
+    const tronMultiService = new TronMultiPayoutService(payway, private_key);
+
+    try {
+        await tronMultiService.init(multi_send_contract);
+        // Execute the multi-send transaction and return the transaction hash
+        const txHash = await tronMultiService.multiSend(token_contract, recipients, currency);
         res.json({ tx_id: txHash });
     } catch (error) {
         // Pass the error to the global error handler

@@ -8,12 +8,16 @@ export const Const = {
     // Gas limit for multi-send transactions
     MULTI_SEND_GAS_LIMIT: 1000000,
 
+    // Tron fee limit
+    TRON_FEE_LIMIT: 100_000_000,
+
     // Testnet providers urls
     BSC_TESTNET: 'https://bsc-testnet.publicnode.com',
     ETH_TESTNET: 'https://ethereum-sepolia.publicnode.com',
     ARBITRUM_TESTNET: 'https://arbitrum-sepolia-rpc.publicnode.com',
     BASE_TESTNET: 'https://base-sepolia-rpc.publicnode.com',
     SOLANA_DEVNET: 'https://api.devnet.solana.com',
+    TRON_NILE: 'https://nile.trongrid.io',
 
     // Supported ETH payways
     ETH_PAYWAY: ['eth', 'erc20'],
@@ -76,7 +80,8 @@ export const Const = {
         ARBITRUM: 'https://sepolia.arbiscan.io/tx/',
         BASE: 'https://sepolia.basescan.org/tx/',
         LTC: 'https://litecoinspace.org/testnet/tx/',
-        SOLANA: 'https://solscan.io/tx/'
+        SOLANA: 'https://solscan.io/tx/',
+        NILE_TRON: 'https://nile.tronscan.org/#/transaction/'
     },
 
     // Decimals method

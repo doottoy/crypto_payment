@@ -28,6 +28,7 @@ export interface MultiPayoutRequestBody {
     data: BaseRequestBody & {
         recipients: Array<{ address: string; amount: string }>;
         multi_send_contract: string;
+        token_contract?: string;
     };
 }
 
