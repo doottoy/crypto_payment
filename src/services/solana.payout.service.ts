@@ -12,13 +12,10 @@ import {
 
 import {
     createAccount,
-    ACCOUNT_SIZE,
     TOKEN_PROGRAM_ID,
     TOKEN_2022_PROGRAM_ID,
     createTransferInstruction,
-    getOrCreateAssociatedTokenAccount,
-    createInitializeAccountInstruction,
-    getMinimumBalanceForRentExemptAccount
+    getOrCreateAssociatedTokenAccount
 } from '@solana/spl-token';
 
 /* Internal dependencies */
