@@ -119,6 +119,30 @@ app.post('/payout/solana', async (req: Request, res: Response, next: NextFunctio
     }
 });
 
+/* Endpoint for create token account */
+app.post('/solana/create_token_account', async (req: Request, res: Response, next: NextFunction) => {
+    const { payway, private_key, token_mint, owner_address } = req.body.data;
+
+    // Initialize the SolanaPayoutService
+    const solanaService = new SolanaPayoutService(payway, private_key);
+
+    try {
+        await solanaService.init();
+
+        // Create new token account
+        const tokenAccountAddress = await solanaService.createNewTokenAccount(
+            token_mint,
+            owner_address
+        );
+
+        // Return token account
+        res.json({ tokenAccount: tokenAccountAddress });
+    } catch (error) {
+        // Pass the error to the global error handler
+        next(error);
+    }
+});
+
 /* Endpoint for processing Tron transactions */
 app.post('/payout/tron', async (req: Request, res: Response, next: NextFunction) => {
     // Destructure the request body to extract payout details
