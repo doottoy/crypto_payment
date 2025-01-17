@@ -244,6 +244,20 @@ function formatErrorTronMultiSendTransaction(currency: string, error: any): stri
 ❗ Error: ${error|| 'Unknown error'}`;
 }
 
+/**
+ * Formats a success message for a standard Solana transaction.
+ * @param account - The created token account
+ * @param owner - The token account owner
+ * @returns A formatted success message string.
+ */
+function formatSolanaCreateTokenAccount(account: string, owner: any): string {
+    // Return a formatted success message
+    return `⚙️ Type: Solana Create Token Account
+⏰ Time: [${new Date().toLocaleString()}]
+️💂‍ Owner: ${owner}
+🧪 Token Account: ${account}
+🔍 View in explorer: ${Const.TESTNET_EXPLORER.SOLANA_ADDRESS}${account}?cluster=devnet`;
+}
 
 export const notifierMessage = {
     formatErrorEVM,
@@ -258,6 +272,7 @@ export const notifierMessage = {
     formatSuccessLTCTransaction,
     formatSuccessTronTransaction,
     formatSuccessSolanaTransaction,
+    formatSolanaCreateTokenAccount,
     formatErrorTronMultiSendTransaction,
     formatSuccessTronMultiSendTransaction
 };

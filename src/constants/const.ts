@@ -81,6 +81,7 @@ export const Const = {
         BASE: 'https://sepolia.basescan.org/tx/',
         LTC: 'https://litecoinspace.org/testnet/tx/',
         SOLANA: 'https://solscan.io/tx/',
+        SOLANA_ADDRESS: 'https://explorer.solana.com/address/',
         NILE_TRON: 'https://nile.tronscan.org/#/transaction/'
     },
 

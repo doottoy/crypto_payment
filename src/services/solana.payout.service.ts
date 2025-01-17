@@ -11,10 +11,14 @@ import {
 } from '@solana/web3.js';
 
 import {
+    createAccount,
+    ACCOUNT_SIZE,
     TOKEN_PROGRAM_ID,
     TOKEN_2022_PROGRAM_ID,
     createTransferInstruction,
-    getOrCreateAssociatedTokenAccount
+    getOrCreateAssociatedTokenAccount,
+    createInitializeAccountInstruction,
+    getMinimumBalanceForRentExemptAccount
 } from '@solana/spl-token';
 
 /* Internal dependencies */
@@ -190,6 +194,46 @@ export class SolanaPayoutService {
             await modules.sendMessageToTelegram(notifierMessage.formatSuccessSolanaTransaction(currency, signature, this.payer.publicKey.toBase58(), amount));
 
             return signature;
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    /**
+     * Creates a new (non-associated) token account
+     *
+     * @param tokenMint - mint address
+     * @param ownerAddress - (optional) address of the owner. If not passed, the owner is `this.payer.publicKey`.
+     * @returns PublicKey of the newly created account in base58 string format
+     */
+    public async createNewTokenAccount(
+        tokenMint: string,
+        ownerAddress?: string
+    ): Promise<string> {
+        try {
+            const newKeypair = Keypair.generate();
+            const mintPublicKey = new PublicKey(tokenMint);
+            const ownerPubKey = ownerAddress
+                ? new PublicKey(ownerAddress)
+                : this.payer.publicKey;
+
+            // Create non-ATA token account
+            const newTokenAccountPubkey = await createAccount(
+                this.connection,
+                this.payer,
+                mintPublicKey,
+                ownerPubKey,
+                newKeypair,
+                undefined,
+                TOKEN_2022_PROGRAM_ID
+            );
+
+            // Log and notify about the successful transaction
+            console.log(notifierMessage.formatSolanaCreateTokenAccount(newTokenAccountPubkey.toBase58(), ownerPubKey));
+            await modules.sendMessageToTelegram(notifierMessage.formatSolanaCreateTokenAccount(newTokenAccountPubkey.toBase58(), ownerPubKey));
+
+            // Return token account address
+            return newTokenAccountPubkey.toBase58();
         } catch (error) {
             throw error;
         }
