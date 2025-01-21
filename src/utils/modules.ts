@@ -2,6 +2,7 @@
 import fetch from 'node-fetch';
 import { config } from 'dotenv';
 import { v4 as uuidv4 } from 'uuid';
+import { Connection, PublicKey } from '@solana/web3.js';
 
 config();
 
@@ -98,7 +99,30 @@ export async function makeRpcRequest<T>(method: string, params: any[] = []): Pro
     }
 }
 
+/**
+ * Fetches the decimals for a given SPL token mint.
+ * @param connection - Connection (Solana RPC).
+ * @param tokenMint - The mint address of the SPL token.
+ * @returns The number of decimals.
+ */
+export async function fetchDecimals(connection: Connection, tokenMint: string): Promise<number> {
+    const mintInfo = await connection.getParsedAccountInfo(new PublicKey(tokenMint));
+
+    if (
+        mintInfo.value &&
+        mintInfo.value.data &&
+        'parsed' in mintInfo.value.data &&
+        'info' in mintInfo.value.data.parsed &&
+        'decimals' in mintInfo.value.data.parsed.info
+    ) {
+        return mintInfo.value.data.parsed.info.decimals;
+    } else {
+        return 6;
+    }
+}
+
 export const modules = {
     getRpcUrl,
+    fetchDecimals,
     sendMessageToTelegram
 };

@@ -161,9 +161,26 @@ function formatErrorMultiSendLTC(payway: string, currency: string, transaction: 
  */
 function formatSuccessSolanaTransaction(currency: string, transaction: any, addressSender: string, amount: string): string {
     // Return a formatted success message
-    return `⚙️ Type: Solana transaction
+    return `⚙️ Type: Solana Transaction
 ⏰ Time: [${new Date().toLocaleString()}]
 💰 Amount: ${amount}
+💸 Currency: ${currency}
+📜 Transaction hash: ${transaction}
+👤 Address sender: ${addressSender}
+🔍 View in explorer: ${Const.TESTNET_EXPLORER.SOLANA}${transaction}?cluster=devnet`;
+}
+
+/**
+ * Formats a success message for a standard Solana transaction.
+ * @param currency - The currency involved in the transaction.
+ * @param transaction - The transaction details, including hash and sender address.
+ * @param addressSender - Address sender
+ * @returns A formatted success message string.
+ */
+function formatSuccessSolanaMultiTransaction(currency: string, transaction: any, addressSender: string): string {
+    // Return a formatted success message
+    return `⚙️ Type: Solana Multi Transaction
+⏰ Time: [${new Date().toLocaleString()}]
 💸 Currency: ${currency}
 📜 Transaction hash: ${transaction}
 👤 Address sender: ${addressSender}
@@ -273,6 +290,7 @@ export const notifierMessage = {
     formatSuccessTronTransaction,
     formatSuccessSolanaTransaction,
     formatSolanaCreateTokenAccount,
+    formatSuccessSolanaMultiTransaction,
     formatErrorTronMultiSendTransaction,
     formatSuccessTronMultiSendTransaction
 };
