@@ -60,7 +60,7 @@ export class SolanaMultiPayoutService {
     }
 
     /**
-     * Main method that decides whether to send a multi-transfer of native SOL or SPL-token (Token-2022).
+     * Sends multiple transactions in a single transaction.
      *
      * @param recipients - An array of Recipient objects (with payeeAddress and amount)
      * @param currency - A currency identifier for notifications/logging
@@ -90,7 +90,7 @@ export class SolanaMultiPayoutService {
     }
 
     /**
-     * Internal function: sends native SOL to multiple recipients in one transaction.
+     * Sends multiple SOL transactions in a single transaction.
      *
      * @param recipients - Array of recipients, each containing a Base58 address and amount in SOL
      * @param currency - Used for notifications/logging
@@ -130,11 +130,10 @@ export class SolanaMultiPayoutService {
     }
 
     /**
-     * Internal function: sends SPL-token (Token-2022) to multiple recipients in one transaction.
+     * Sends multiple SPL transactions in a single transaction.
      *
      * @param recipients - Array of recipients, each with payeeAddress and amount
      * @param tokenMint - The mint address of the SPL-token
-     * @param isToken2022 - If true, uses TOKEN_2022_PROGRAM_ID
      * @param currency - For notifications/logging
      * @returns Transaction signature (hash)
      */
