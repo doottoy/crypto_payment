@@ -19,7 +19,7 @@ import {
 } from '@solana/spl-token';
 
 /* Internal dependencies */
-import { modules } from '../utils/modules';
+import { modules, fetchDecimals } from '../utils/modules';
 import { notifierMessage } from '../utils/message-formatter';
 import { formatSolanaError } from '../utils/solana-error-handler';
 
@@ -170,7 +170,7 @@ export class SolanaPayoutService {
                 tokenProgramId
             );
 
-            const decimals = await this.fetchDecimals(tokenMint);
+            const decimals = await fetchDecimals(this.connection, tokenMint);
             const tokenAmount = BigInt(Math.floor(parseFloat(amount) * 10 ** decimals));
 
             // Create transfer instruction
@@ -234,26 +234,5 @@ export class SolanaPayoutService {
         } catch (error) {
             throw error;
         }
-    }
-
-    /**
-     * Fetches the decimals for a given SPL token mint.
-     * @param tokenMint - The mint address of the SPL token.
-     * @returns The number of decimals.
-     */
-    private async fetchDecimals(tokenMint: string): Promise<number> {
-        const mintInfo = await this.connection.getParsedAccountInfo(new PublicKey(tokenMint));
-        console.log(mintInfo.value)
-        if (
-            mintInfo.value &&
-            mintInfo.value.data &&
-            'parsed' in mintInfo.value.data &&
-            'info' in mintInfo.value.data.parsed &&
-            'decimals' in mintInfo.value.data.parsed.info
-        ) {
-            return mintInfo.value.data.parsed.info.decimals;
-        } else {
-            return 6;
-        };
     }
 }

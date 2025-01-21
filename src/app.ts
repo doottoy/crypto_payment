@@ -12,6 +12,7 @@ import { TronMultiPayoutService } from './services/tron.multi-payout.service';
 
 /* Interface imports */
 import { SolanaPayoutRequestBody } from './interfaces/solana.payout.interface';
+import { SolanaMultiPayoutService } from './services/solana.multi-payout.service';
 import { PayoutRequestBody, MultiPayoutRequestBody } from './interfaces/payout.interface';
 import { LtcPayoutRequestBody, LtcSendManyPayoutRequestBody } from './interfaces/ltc.payout.interface';
 
@@ -106,12 +107,29 @@ app.post('/payout/solana', async (req: Request, res: Response, next: NextFunctio
 
     try {
         await solanaService.init();
-        if (!currency) {
-            return res.status(400).json({ error: 'Currency is required' });
-        }
 
         // Send the transaction and return the transaction hash
         const txHash = await solanaService.sendTransaction(payee_address, amount,  currency, token_mint, is_token_2022 || false);
+        res.json({ tx_id: txHash });
+    } catch (error) {
+        // Pass the error to the global error handler
+        next(error);
+    }
+});
+
+app.post('/payout/solana/multi_send', async (req: Request, res: Response, next: NextFunction) => {
+    // Destructure the request body to extract payout details
+    const { private_key, currency, token_mint, recipients } = req.body.data;
+
+    // Initialize the SolanaMultiPayoutService
+    const multiService = new SolanaMultiPayoutService(private_key);
+
+    try {
+        await multiService.init();
+
+        // Send the transaction and return the transaction hash
+        const txHash = await multiService.sendTransaction(recipients, currency, token_mint);
+
         res.json({ tx_id: txHash });
     } catch (error) {
         // Pass the error to the global error handler
