@@ -26,7 +26,7 @@ import { Const } from '../constants/const';
 
 /* Interface */
 interface Recipient {
-    payeeAddress: string;
+    address: string;
     amount: string;
 }
 
@@ -62,7 +62,7 @@ export class SolanaMultiPayoutService {
     /**
      * Sends multiple transactions in a single transaction.
      *
-     * @param recipients - An array of Recipient objects (with payeeAddress and amount)
+     * @param recipients - An array of Recipient objects (with address and amount)
      * @param currency - A currency identifier for notifications/logging
      * @param tokenMint - If provided, treat this as an SPL-token multi-transfer
      * @returns The transaction signature (hash) once confirmed
@@ -110,7 +110,7 @@ export class SolanaMultiPayoutService {
                 tx.add(
                     SystemProgram.transfer({
                         fromPubkey: this.payer.publicKey,
-                        toPubkey: new PublicKey(r.payeeAddress),
+                        toPubkey: new PublicKey(r.address),
                         lamports
                     })
                 );
@@ -132,7 +132,7 @@ export class SolanaMultiPayoutService {
     /**
      * Sends multiple SPL transactions in a single transaction.
      *
-     * @param recipients - Array of recipients, each with payeeAddress and amount
+     * @param recipients - Array of recipients, each with address and amount
      * @param tokenMint - The mint address of the SPL-token
      * @param currency - For notifications/logging
      * @returns Transaction signature (hash)
@@ -166,7 +166,7 @@ export class SolanaMultiPayoutService {
             const tx = new Transaction();
 
             for (const r of recipients) {
-                const payeePubkey = new PublicKey(r.payeeAddress);
+                const payeePubkey = new PublicKey(r.address);
 
                 // Create/find ATA for each recipient
                 const recipientAta = await getOrCreateAssociatedTokenAccount(
