@@ -8,7 +8,7 @@
     "lint-fix": "eslint . --ext .js,.ts --fix",
     "app:build": "tsc",
     "app:start": "node dist/app.js",
-    "tests:start": "mocha --require ts-node/register --require source-map-support/register --extensions ts --recursive \"src/__tests__/**/*.test.ts\"",
+    "tests:start": "",
     "tests:get-data-from-sheet": "ts-node src/__tests__/utils/get-data-from-sheet.ts 0 cryptoPaymentTestData.json"
   },
   "dependencies": {
