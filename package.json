@@ -8,7 +8,7 @@
     "lint-fix": "eslint . --ext .js,.ts --fix",
     "app:build": "tsc",
     "app:start": "node dist/app.js",
-    "tests:start": "mocha",
+    "tests:start": "mocha --require ts-node/register --require source-map-support/register --extensions ts --recursive \"src/__tests__/**/*.test.ts\"",
     "tests:get-data-from-sheet": "ts-node src/__tests__/utils/get-data-from-sheet.ts 0 cryptoPaymentTestData.json"
   },
   "dependencies": {
@@ -42,6 +42,7 @@
     "eslint-config-airbnb-base": "^15.0.0",
     "eslint-plugin-import": "^2.25.2",
     "mocha": "^10.7.3",
+    "source-map-support": "^0.5.21",
     "ts-node": "^10.4.0",
     "typescript": "^5.7.2"
   },
