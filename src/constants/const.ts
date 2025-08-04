@@ -11,13 +11,44 @@ export const Const = {
     // Tron fee limit
     TRON_FEE_LIMIT: 100_000_000,
 
+    EVM_RPC_PROVIDERS: {
+        eth: [
+            'https://ethereum-sepolia-rpc.publicnode.com',
+            'https://eth-sepolia.g.alchemy.com/public',
+            'https://sepolia.infura.io/v3/7a4583d0b3014189bbff7f24582fc5ea'
+        ],
+        bsc: [
+            'https://bsc-testnet.bnbchain.org',
+            'https://bsc-testnet-rpc.publicnode.com',
+            'https://bnb-testnet.g.alchemy.com/public',
+            'https://bsc-testnet.infura.io/v3/7a4583d0b3014189bbff7f24582fc5ea'
+        ],
+        arbitrum_eth: [
+            'https://arbitrum-sepolia-rpc.publicnode.com',
+            'https://arb-sepolia.g.alchemy.com/public',
+            'https://arbitrum-sepolia.infura.io/v3/7a4583d0b3014189bbff7f24582fc5ea'
+        ],
+        base_eth: [
+            'https://sepolia.base.org',
+            'https://base-sepolia-rpc.publicnode.com',
+            'https://base-sepolia.g.alchemy.com/public',
+            'https://base-sepolia.infura.io/v3/7a4583d0b3014189bbff7f24582fc5ea'
+        ],
+        polygon_eth: [
+            'https://polygon-amoy-bor-rpc.publicnode.com',
+            'https://polygon-amoy.g.alchemy.com/public',
+            'https://polygon-amoy.infura.io/v3/7a4583d0b3014189bbff7f24582fc5ea'
+        ],
+    } as Record<string, string[]>,
+
     // Testnet providers urls
-    BSC_TESTNET: 'https://bsc-testnet.publicnode.com',
-    ETH_TESTNET: 'https://ethereum-sepolia.publicnode.com',
+    BSC_TESTNET: 'https://bsc-testnet.bnbchain.org',
+    ETH_TESTNET: 'https://ethereum-sepolia-rpc.publicnode.com',
     ARBITRUM_TESTNET: 'https://arbitrum-sepolia-rpc.publicnode.com',
-    BASE_TESTNET: 'https://base-sepolia-rpc.publicnode.com',
+    BASE_TESTNET: 'https://sepolia.base.org',
     SOLANA_DEVNET: 'https://api.devnet.solana.com',
     TRON_NILE: 'https://nile.trongrid.io',
+    AMOY_POLYGON: 'https://polygon-amoy.g.alchemy.com/public',
 
     // Supported ETH payways
     ETH_PAYWAY: ['eth', 'erc20'],
@@ -33,6 +64,9 @@ export const Const = {
 
     // Supported Base payways
     BASE_PAYWAY: ['base_eth', 'base_erc20'],
+
+    // Supported Polygon payways
+    POLYGON_PAYWAY: ['polygon_eth', 'polygon_erc20'],
 
     // ABI definition for a basic transfer function
     ABI_CONTRACT: [
@@ -82,7 +116,8 @@ export const Const = {
         LTC: 'https://litecoinspace.org/testnet/tx/',
         SOLANA: 'https://solscan.io/tx/',
         SOLANA_ADDRESS: 'https://explorer.solana.com/address/',
-        NILE_TRON: 'https://nile.tronscan.org/#/transaction/'
+        NILE_TRON: 'https://nile.tronscan.org/#/transaction/',
+        POLYGON: 'https://amoy.polygonscan.com/tx/'
     },
 
     // Decimals method

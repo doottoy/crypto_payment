@@ -98,17 +98,7 @@ describe('Test EVM Transactions', () => {
                             ? (testData.requestBody.data as SinglePayoutRequestBody['data']).contract
                             : (testData.requestBody.data as MultiPayoutRequestBody['data']).multi_send_contract
                     });
-
-                    // Close the service after successful transaction
-                    await modules.closeService({
-                        provider: service.getProvider()
-                    });
                 } catch (error) {
-                    // Close service on failure
-                    await modules.closeService({
-                        provider: service.getProvider()
-                    });
-
                     throw error;
                 }
             });

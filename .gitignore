@@ -5,3 +5,4 @@
 /test-setup-env.sh
 /src/__tests__/test-data/*
 !src/__tests__/test-data/.gitkeep
+/.idea/

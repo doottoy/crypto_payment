@@ -1,3 +1,7 @@
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
 /* External dependencies */
 import express, { Request, Response, NextFunction } from 'express';
 

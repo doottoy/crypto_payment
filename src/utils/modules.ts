@@ -46,7 +46,9 @@ async function getRpcUrl(payway: string): Promise<string> {
             ? Const.ARBITRUM_TESTNET
             : Const.BASE_PAYWAY.includes(payway)
                 ? Const.BASE_TESTNET
-                : Const.ETH_TESTNET;
+                : Const.POLYGON_PAYWAY.includes(payway)
+                    ? Const.AMOY_POLYGON
+                    : Const.ETH_TESTNET;
 }
 
 /**
@@ -121,8 +123,29 @@ export async function fetchDecimals(connection: Connection, tokenMint: string): 
     }
 }
 
+function getEvmRpcUrlsForPayway(payway: string): string[] {
+    if (Const.ETH_PAYWAY.includes(payway)) {
+        return Const.EVM_RPC_PROVIDERS.eth;
+    }
+    if (Const.BSC_PAYWAY.includes(payway)) {
+        return Const.EVM_RPC_PROVIDERS.bsc;
+    }
+    if (Const.ARBITRUM_PAYWAY.includes(payway)) {
+        return Const.EVM_RPC_PROVIDERS.arbitrum_eth;
+    }
+    if (Const.BASE_PAYWAY.includes(payway)) {
+        return Const.EVM_RPC_PROVIDERS.base_eth;
+    }
+    if (Const.POLYGON_PAYWAY.includes(payway)) {
+        return Const.EVM_RPC_PROVIDERS.polygon_eth;
+    }
+    throw new Error(`Unknown EVM payway: ${payway}`);
+}
+
+
 export const modules = {
     getRpcUrl,
     fetchDecimals,
-    sendMessageToTelegram
+    sendMessageToTelegram,
+    getEvmRpcUrlsForPayway
 };
