@@ -17,18 +17,14 @@ import {
 } from '@solana/spl-token';
 
 /* Internal dependencies */
+import { logger } from '../utils/logger';
 import { modules, fetchDecimals } from '../utils/modules';
+import { Recipient } from '../interfaces/payout.interface';
 import { notifierMessage } from '../utils/message-formatter';
 import { formatSolanaError } from '../utils/solana-error-handler';
 
 /* Constants */
 import { Const } from '../constants/const';
-
-/* Interface */
-interface Recipient {
-    address: string;
-    amount: string;
-}
 
 /**
  * Service class for handling Solana multisend transactions (native SOL or SPL-token).
@@ -36,6 +32,7 @@ interface Recipient {
 export class SolanaMultiPayoutService {
     private connection: Connection;
     private payer!: Keypair;
+    private readonly network = 'SOLANA_MULTI';
 
     /**
      * @param privateKey - Base58-encoded private key (32 or 64 bytes)
@@ -83,6 +80,7 @@ export class SolanaMultiPayoutService {
         } catch (error) {
             // Handle and format the error
             const formattedError = formatSolanaError(error);
+            logger.error(this.network, `❌ Solana multisend error: ${formattedError}`);
 
             await modules.sendMessageToTelegram(notifierMessage.formatErrorSolana(currency, formattedError));
             throw new Error(formattedError);
@@ -103,6 +101,7 @@ export class SolanaMultiPayoutService {
         try {
             // Create a new transaction
             const tx = new Transaction();
+            logger.info(this.network, `✍️ Multisend SOL to ${recipients.length} recipients`);
 
             // For each recipient, add a SystemProgram.transfer instruction
             for (const r of recipients) {
@@ -120,8 +119,9 @@ export class SolanaMultiPayoutService {
             const signature = await sendAndConfirmTransaction(this.connection, tx, [this.payer]);
 
             // Log and notify about the successful transaction
-            console.log(notifierMessage.formatSuccessSolanaMultiTransaction(currency, signature, this.payer.publicKey.toBase58()));
-            await modules.sendMessageToTelegram(notifierMessage.formatSuccessSolanaMultiTransaction(currency, signature, this.payer.publicKey.toBase58()));
+            const successMsg = notifierMessage.formatSuccessSolanaMultiTransaction(currency, signature, this.payer.publicKey.toBase58());
+            logger.info(this.network, successMsg);
+            await modules.sendMessageToTelegram(successMsg);
 
             return signature;
         } catch (error) {
@@ -146,6 +146,7 @@ export class SolanaMultiPayoutService {
             // Determine correct token program
             const mintPubkey = new PublicKey(tokenMint);
             const tokenProgramId = TOKEN_2022_PROGRAM_ID;
+            logger.info(this.network, `✍️ Multisend SPL token ${tokenMint} to ${recipients.length} recipients`);
 
             // Create/find ATA for the sender
             const senderAta = await getOrCreateAssociatedTokenAccount(
@@ -201,8 +202,9 @@ export class SolanaMultiPayoutService {
             const signature = await sendAndConfirmTransaction(this.connection, tx, [this.payer]);
 
             // Log and notify about the successful transaction
-            console.log(notifierMessage.formatSuccessSolanaMultiTransaction(currency, signature, this.payer.publicKey.toBase58()));
-            await modules.sendMessageToTelegram(notifierMessage.formatSuccessSolanaMultiTransaction(currency, signature, this.payer.publicKey.toBase58()));
+            const successMsg = notifierMessage.formatSuccessSolanaMultiTransaction(currency, signature, this.payer.publicKey.toBase58());
+            logger.info(this.network, successMsg);
+            await modules.sendMessageToTelegram(successMsg);
 
             return signature;
         } catch (error) {

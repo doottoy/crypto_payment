@@ -19,6 +19,7 @@ import {
 } from '@solana/spl-token';
 
 /* Internal dependencies */
+import { logger } from '../utils/logger';
 import { modules, fetchDecimals } from '../utils/modules';
 import { notifierMessage } from '../utils/message-formatter';
 import { formatSolanaError } from '../utils/solana-error-handler';
@@ -72,17 +73,19 @@ export class SolanaPayoutService {
         tokenMint?: string,
         isToken2022: boolean = false
     ): Promise<string> {
+        const network = this.payway.toUpperCase();
         try {
             // If no tokenMint, treat as native SOL
             if (!tokenMint) {
-                return await this.sendNativeSOL(payeeAddress, amount, currency);
+                return await this.sendNativeSOL(payeeAddress, amount, currency, network);
             } else {
                 // Otherwise, SPL-token
-                return await this.sendSPLToken(payeeAddress, amount, tokenMint, isToken2022, currency);
+                return await this.sendSPLToken(payeeAddress, amount, tokenMint, isToken2022, currency, network);
             }
         } catch (error) {
             // Handle and format the error
             const formattedError = formatSolanaError(error);
+            logger.error(network, `❌ Solana transaction error: ${formattedError}`);
 
             // Notify via Telegram
             await modules.sendMessageToTelegram(notifierMessage.formatErrorSolana(currency, formattedError));
@@ -101,10 +104,13 @@ export class SolanaPayoutService {
     private async sendNativeSOL(
         payeeAddress: string,
         amount: string,
-        currency: string
+        currency: string,
+        network: string
     ): Promise<string> {
         try {
             const lamports = Math.floor(parseFloat(amount) * 1e9);
+            logger.info(network, `✍️ Sending ${amount} ${currency} (SOL) -> ${payeeAddress}`);
+
             const tx = new Transaction().add(
                 SystemProgram.transfer({
                     fromPubkey: this.payer.publicKey,
@@ -115,8 +121,9 @@ export class SolanaPayoutService {
             const signature = await sendAndConfirmTransaction(this.connection, tx, [this.payer]);
 
             // Log and notify about the successful transaction
-            console.log(notifierMessage.formatSuccessSolanaTransaction(currency, signature, this.payer.publicKey.toBase58(), amount));
-            await modules.sendMessageToTelegram(notifierMessage.formatSuccessSolanaTransaction(currency, signature, this.payer.publicKey.toBase58(), amount));
+            const successMsg = notifierMessage.formatSuccessSolanaTransaction(currency, signature, this.payer.publicKey.toBase58(), amount);
+            logger.info(network, successMsg);
+            await modules.sendMessageToTelegram(successMsg);
 
             return signature;
         } catch (error) {
@@ -139,12 +146,14 @@ export class SolanaPayoutService {
         amount: string,
         tokenMint: string,
         isToken2022: boolean,
-        currency: string
+        currency: string,
+        network: string
     ): Promise<string> {
         try {
             const mintPubkey = new PublicKey(tokenMint);
             const payeePubkey = new PublicKey(payeeAddress);
             const tokenProgramId = isToken2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+            logger.info(network, `✍️ Sending ${amount} ${currency} (SPL${isToken2022 ? ' Token-2022' : ''}) -> ${payeeAddress} [mint=${tokenMint}]`);
 
             // Create/find ATA for sender
             const senderAta = await (getOrCreateAssociatedTokenAccount as any)(
@@ -187,8 +196,9 @@ export class SolanaPayoutService {
             const signature = await sendAndConfirmTransaction(this.connection, tx, [this.payer]);
 
             // Log and notify about the successful transaction
-            console.log(notifierMessage.formatSuccessSolanaTransaction(currency, signature, this.payer.publicKey.toBase58(), amount));
-            await modules.sendMessageToTelegram(notifierMessage.formatSuccessSolanaTransaction(currency, signature, this.payer.publicKey.toBase58(), amount));
+            const successMsg = notifierMessage.formatSuccessSolanaTransaction(currency, signature, this.payer.publicKey.toBase58(), amount);
+            logger.info(network, successMsg);
+            await modules.sendMessageToTelegram(successMsg);
 
             return signature;
         } catch (error) {
@@ -207,6 +217,7 @@ export class SolanaPayoutService {
         tokenMint: string,
         ownerAddress?: string
     ): Promise<string> {
+        const network = this.payway.toUpperCase();
         try {
             const newKeypair = Keypair.generate();
             const mintPublicKey = new PublicKey(tokenMint);
@@ -226,8 +237,9 @@ export class SolanaPayoutService {
             );
 
             // Log and notify about the successful transaction
-            console.log(notifierMessage.formatSolanaCreateTokenAccount(newTokenAccountPubkey.toBase58(), ownerPubKey));
-            await modules.sendMessageToTelegram(notifierMessage.formatSolanaCreateTokenAccount(newTokenAccountPubkey.toBase58(), ownerPubKey));
+            const successMsg = notifierMessage.formatSolanaCreateTokenAccount(newTokenAccountPubkey.toBase58(), ownerPubKey);
+            logger.info(network, successMsg);
+            await modules.sendMessageToTelegram(successMsg);
 
             // Return token account address
             return newTokenAccountPubkey.toBase58();

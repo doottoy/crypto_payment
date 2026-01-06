@@ -70,35 +70,34 @@ function createBasicAuthHeader(username: string, password: string): string {
  * @returns A Promise that resolves to the response of the RPC request.
  * @throws Will throw an error if the RPC URL is not defined or if the fetch operation fails.
  */
-export async function makeRpcRequest<T>(method: string, params: any[] = []): Promise<RpcResponse<T>> {
-    // Ensure that the RPC URL is defined in environment variables.
+export async function makeRpcRequest<T>(
+    method: string,
+    params: any[] = [],
+    opts?: { wallet?: string }
+): Promise<RpcResponse<T>> {
     if (!process.env.RPC_URL || !process.env.RPC_USER || !process.env.RPC_PASS) {
-        throw new Error('Credentials for RPC Auth is not defined in environment variables.');
+        throw new Error('Credentials for RPC Auth is not defined in environment variables');
     }
 
-    try {
-        // Perform the fetch request to the RPC URL with the provided method and parameters.
-        const response = await fetch(process.env.RPC_URL, {
-            method: Const.POST,
-            headers: {
-                'Content-Type': Const.APPLICATION_JSON,
-                'Authorization': createBasicAuthHeader(process.env.RPC_USER, process.env.RPC_PASS)
-            },
-            body: JSON.stringify({
-                method,
-                params,
-                id: uuidv4(),
-                jsonrpc: Const.RPC
-            })
-        });
+    const baseUrl = process.env.RPC_URL.replace(/\/+$/, '');
+    const url = opts?.wallet ? `${baseUrl}/wallet/${encodeURIComponent(opts.wallet)}` : baseUrl;
 
-        // Parse and return the JSON response from the RPC server
-        const data: RpcResponse<T> = await response.json();
-        return data;
-    } catch (error) {
-        // Throw an error if the fetch operation fails or if any issue occurs
-        throw new Error('Internal Server Error');
-    }
+    const response = await fetch(url, {
+        method: Const.POST,
+        headers: {
+            'Content-Type': Const.APPLICATION_JSON,
+            'Authorization': createBasicAuthHeader(process.env.RPC_USER, process.env.RPC_PASS)
+        },
+        body: JSON.stringify({
+            method,
+            params,
+            id: uuidv4(),
+            jsonrpc: Const.RPC
+        })
+    });
+
+    const data: RpcResponse<T> = await response.json();
+    return data;
 }
 
 /**

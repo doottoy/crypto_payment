@@ -21,12 +21,20 @@ export interface PayoutRequestBody {
 }
 
 /**
+ * Standard recipient payload used across multi-send flows.
+ */
+export interface Recipient {
+    address: string;
+    amount: string;
+}
+
+/**
  * Structure for a multi-payout transaction request, extending the
  * base request body with fields specific to a multi-payout operation.
  */
 export interface MultiPayoutRequestBody {
     data: BaseRequestBody & {
-        recipients: Array<{ address: string; amount: string }>;
+        recipients: Recipient[];
         multi_send_contract: string;
         token_contract?: string;
     };

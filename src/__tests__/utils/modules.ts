@@ -118,7 +118,7 @@ async function updateObjValue(
 
     // If no update was made at the root level, check the `data` property if it exists.
     if (!hasBeenUpdated && obj.data) {
-        await updateObjValue(obj.data, oldValue, newValue, true);  // Добавляем await
+        await updateObjValue(obj.data, oldValue, newValue, true);
     }
 }
 

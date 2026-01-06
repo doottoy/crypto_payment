@@ -3,16 +3,11 @@ import { TronWeb } from 'tronweb';
 
 /* Internal dependencies */
 import { modules } from '../utils/modules';
+import { Recipient } from '../interfaces/payout.interface';
 import { notifierMessage } from '../utils/message-formatter';
 
 /* Constants */
 import { Const } from '../constants/const';
-
-/* Types */
-type Recipient = {
-    address: string;
-    amount: string;
-};
 
 /**
  * Service class for performing multi-send transactions on the Tron

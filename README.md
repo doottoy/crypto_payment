@@ -2,73 +2,71 @@
 
 [![CI/CD Pipeline](https://github.com/doottoy/crypto_payment/actions/workflows/depoly.yml/badge.svg)](https://github.com/doottoy/crypto_payment/actions/workflows/depoly.yml)
 
-## Overview
+API service for crypto payouts across EVM (ETH Sepolia, Base Sepolia, Arbitrum Sepolia, BSC testnet, Polygon Amoy), Litecoin Testnet, Solana devnet (SOL & SPL/Token-2022), and Tron Nile (TRX/TRC20). Handles signing, fee selection, RPC failover, and Telegram alerts.
 
-The Crypto Payment Service provides a robust platform for handling cryptocurrency transactions. The service supports both single and multi-send transactions for various cryptocurrencies, including: 
-- BSC Testnet
-- ETH Sepolia
-- Base Sepolia
-- Arbitrum Sepolia
-- Litecoin
-- Solana & SPL 2022 token (devnet) 
-- Tron Nile
+## What you'll get
+- Single payouts and batched multi-send per chain.
+- Telegram alerts with explorer links for success and errors.
+- EVM fee helpers (maxPriorityFee/maxFee bumping, provider failover).
+- SPL/Token-2022 on Solana; TRX/TRC20 on Tron; Litecoin Testnet support.
 
-## Features
+## Supported networks
+- EVM: ETH Sepolia, Base Sepolia, Arbitrum Sepolia, BSC testnet, Polygon Amoy
+- Litecoin: Litecoin Testnet
+- Solana: devnet (SOL, SPL, Token-2022)
+- Tron: Nile (TRX, TRC20)
 
-- **Single Payouts:** Transfer funds to a single address with specified amount.
-- **Multi-Send:** Efficiently send funds to multiple addresses in a single transaction.
-- **Error Handling and Notifications:** Comprehensive error handling with notifications sent via Telegram.
-- **Environment Configurations:** Flexible configuration through environment variables.
+## Prerequisites
+- Node.js 18+
+- Access to the necessary RPC endpoints and private keys for the chains you use
+- Telegram bot token and chat id (for alerts)
 
-## Installation
+## Setup
+1) Install dependencies
+```bash
+npm install
+```
 
-To get started with the Crypto Payment Service, follow these steps:
+2) Create `.env` in the repo root
+```bash
+# Litecoin Core RPC
+RPC_URL=litecoin_core_host
+RPC_USER=litecoin_core_user
+RPC_PASS=litecoin_core_password
 
-1. **Clone the Repository:**
-   ```bash
-   git clone https://github.com/your-repo/crypto_payment.git
-   cd crypto_payment
+# Telegram bot (alerts)
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+TELEGRAM_CHAT_ID=your_chat_id
 
-2. **Install Dependencies:**
-   ```bash
-   npm install
+# Test automation (optional)
+AUTOMATION_EVM_PRIVATE_KEY=...
+AUTOMATION_SERVICE_PRIVATE_KEY=...
+AUTOMATION_SERVICE_EMAIL=...
+AUTOMATION_GOOGLE_TOKEN=...
+AUTOMATION_SERVICE_SCOPES=...
+```
 
-3. **Setup Environment Variables:**
-- Create a `.env` file in the root directory and add the required environment variables:
-   ```bash
-    #===================================================================
-    # Main ENV
-    #===================================================================
-    RPC_URL=litecoin_core_host
-    RPC_USER=litecoin_core_user
-    RPC_PASS=litecoin_core_password
-    TELEGRAM_API_KEY=your_telegram_api_key
-    TELEGRAM_CHAT_ID=your_telegram_chat_id
-  
-    #===================================================================
-    # ENV for testing
-    #===================================================================
-    AUTOMATION_EVM_PRIVATE_KEY=address_private_key
-    AUTOMATION_SERVICE_PRIVATE_KEY=google_service_account_private_key
-    AUTOMATION_SERVICE_EMAIL=google_service_account
-    AUTOMATION_GOOGLE_TOKEN=google_sheet_with_test_data
-    AUTOMATION_SERVICE_SCOPES=google_sheet_scopes
+3) Build and run
+```bash
+npm run app:build
+npm run app:start   # PORT defaults to 3000
+```
 
-4. **Build the Project:**
-   ```bash
-   npm run app:build
-   
-5. **Start the Server:**
-   ```bash
-   npm run app:start
+## API overview
+| Chain                    | Single                      | Multi-send                      |
+|--------------------------|-----------------------------|---------------------------------|
+| EVM (native/ERC20)       | `POST /payout/evm`          | `POST /payout/evm/multi_send`   |
+| Litecoin                 | `POST /payout/ltc`          | `POST /payout/ltc/multi_send`   |
+| Solana (SOL/SPL/2022)    | `POST /payout/solana`       | `POST /payout/solana/multi_send`|
+| Tron (TRX/TRC20)         | `POST /payout/tron`         | `POST /payout/tron/multi_send`  |
 
-## API Endpoints
+All endpoints respond with:
+```json
+{ "tx_id": "transaction_hash" }
+```
 
-**Single EVM Payout**
-
-- **Endpoint:** `/payout/evm`
-- **Method:** POST
-- **Request Body:**
+### EVM (single)
+`POST /payout/evm`
 ```json
 {
   "data": {
@@ -77,36 +75,31 @@ To get started with the Crypto Payment Service, follow these steps:
     "amount": "0.1",
     "contract": "0x...",
     "currency": "ETH",
-    "private_key": "your_private_key"
+    "private_key": "..."
   }
 }
 ```
+Omit `contract` to send native ETH instead of ERC20.
 
-**Multi-Send EVM**
-
-- **Endpoint:** `/payout/evm/multi_send`
-- **Method:** `POST`
-- **Request Body:**
+### EVM (multi-send)
+`POST /payout/evm/multi_send`
 ```json
 {
   "data": {
     "payway": "eth",
     "recipients": [
-      {"address": "0x...", "amount": "0.05"},
-      {"address": "0x...", "amount": "0.05"}
+      { "address": "0x...", "amount": "0.05" },
+      { "address": "0x...", "amount": "0.05" }
     ],
-    "private_key": "your_private_key",
     "currency": "ETH",
+    "private_key": "...",
     "multi_send_contract": "0x..."
   }
 }
 ```
 
-**Single LTC Payout**
-
-- **Endpoint:** `/payout/ltc`
-- **Method:** `POST`
-- **Request Body:**
+### Litecoin (single)
+`POST /payout/ltc`
 ```json
 {
   "data": {
@@ -119,11 +112,8 @@ To get started with the Crypto Payment Service, follow these steps:
 }
 ```
 
-**Multi-Send LTC**
-
-- **Endpoint:** `/payout/ltc/multi_send`
-- **Method:** `POST`
-- **Request Body:**
+### Litecoin (multi)
+`POST /payout/ltc/multi_send`
 ```json
 {
   "data": {
@@ -131,20 +121,18 @@ To get started with the Crypto Payment Service, follow these steps:
     "payway": "LTC",
     "currency": "LTC",
     "recipients": [
-      {"address": "LTC...", "amount": "0.5"},
-      {"address": "LTC...", "amount": "0.5"}
+      { "address": "LTC...", "amount": "0.5" },
+      { "address": "LTC...", "amount": "0.5" }
     ],
     "comment": "Payment for services",
     "minconf": 1,
-    "account": "account_name"
+    "account": "wallet_label"
   }
 }
 ```
-**Solana SOL token**
 
-- **Endpoint:** `/payout/solana`
-- **Method:** POST
-- **Request Body:**
+### Solana (SOL or SPL/Token-2022)
+`POST /payout/solana`
 ```json
 {
   "data": {
@@ -152,100 +140,77 @@ To get started with the Crypto Payment Service, follow these steps:
     "currency": "SOL",
     "amount": "0.1",
     "payee_address": "5x...",
-    "private_key": "your_private_key",
+    "private_key": "...",
     "token_mint": null,
     "is_token_2022": false
   }
 }
 ```
-**Solana SPL 2022 token**
+Set `token_mint` and `is_token_2022: true` for Token-2022; set `token_mint` for classic SPL tokens.
 
-- **Endpoint:** `/payout/solana`
-- **Method:** POST
-- **Request Body:**
+### Solana (multi)
+`POST /payout/solana/multi_send`
 ```json
 {
   "data": {
-    "payway": "spl",
-    "currency": "USDT",
-    "amount": "0.1",
-    "payee_address": "5x...",
-    "private_key": "your_private_key",
-    "token_mint": "4...",
-    "is_token_2022": true
+    "private_key": "...",
+    "currency": "SOL",
+    "token_mint": null,
+    "recipients": [
+      { "address": "5x...", "amount": "0.05" },
+      { "address": "5y...", "amount": "0.05" }
+    ]
   }
 }
 ```
 
-**Single Tron Payout**
-
-- **Endpoint:** `/payout/tron`
-- **Method:** POST
-- **Request Body:**
+### Tron (single)
+`POST /payout/tron`
 ```json
 {
   "data": {
-    "payway": "tron", // tron or trc20
+    "payway": "tron",
     "payee_address": "T...",
     "amount": "0.1",
-    "contract": "0x...", // optional for send trc20 token
-    "currency": "TRX", // TRX or USDT
-    "private_key": "your_private_key"
+    "contract": "T...",
+    "currency": "TRX",
+    "private_key": "..."
   }
 }
 ```
+For TRC20, set `payway` to `trc20`, provide `contract`, and set `currency` accordingly.
 
-**Multi-Send Tron**
-
-- **Endpoint:** `/payout/tron/multi_send`
-- **Method:** `POST`
-- **Request Body:**
+### Tron (multi)
+`POST /payout/tron/multi_send`
 ```json
 {
   "data": {
-    "payway": "tron", // tron or trc20
+    "payway": "tron",
     "recipients": [
-      {"address": "T...", "amount": "0.05"},
-      {"address": "T...", "amount": "0.05"}
+      { "address": "T...", "amount": "0.05" },
+      { "address": "T...", "amount": "0.05" }
     ],
-    "private_key": "your_private_key",
-    "currency": "TRX", // TRX or USDT
+    "private_key": "...",
+    "currency": "TRX",
     "multi_send_contract": "T...",
-    "token_contract": "T..." // optional for send trc20 token
+    "token_contract": "T..."
   }
 }
 ```
+`token_contract` is required for TRC20 multi-send; omit for TRX.
 
-## General Response Format
-
-All API endpoints return a response with the following structure:
-
-```json
-{
-  "tx_id": "transaction_hash"
-}
-```
+## Observability
+- Logs to stdout with timestamps and network tags.
+- Telegram alerts via `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`.
 
 ## Development
-
-To run tests, use:
-```bash
-npm run tests:start
-```
-
-To lint the code, use:
-```bash
-npm run lint
-```
-
-To automatically fix linting issues, use:
-```bash
-npm run lint-fix
-```
+- Build: `npm run app:build`
+- Start: `npm run app:start` (uses `PORT` or 3000)
+- Tests: `npm run tests:start`
+- Lint: `npm run lint` (auto-fix: `npm run lint-fix`)
 
 ## Deployment
-
-Deployment is managed through GitHub Actions. Changes to the main branch will trigger automatic deployment to the server. Ensure that your configuration and secrets are set up correctly in GitHub Actions.
+GitHub Actions workflow `.github/workflows/depoly.yml` builds and deploys on pushes to `main`. Configure required secrets/env vars in repo settings.
 
 ## Contributing
-I welcome contributions to the Crypto Payment Service. Please refer to the [contributing guidelines](https://github.com/doottoy/crypto_payment/blob/main/CONTRIBUTING.md) for more information.
+Contributions are welcome. See [CONTRIBUTING.md](https://github.com/doottoy/crypto_payment/blob/main/CONTRIBUTING.md) before opening PRs.

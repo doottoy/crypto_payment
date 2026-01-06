@@ -1,4 +1,5 @@
 /* Internal dependencies */
+import { logger } from '../utils/logger';
 import { modules, makeRpcRequest } from '../utils/modules';
 import { notifierMessage } from '../utils/message-formatter';
 
@@ -16,20 +17,25 @@ export class LtcPayoutService {
      * @returns A Promise that resolves with the transaction ID.
      */
     async ltcSendTransaction(request: LtcBaseRequestBody) {
+        const network = request.payway.toUpperCase();
         try {
+            logger.info(network, `✍️ Sending ${request.amount} ${request.currency} -> ${request.payee_address}`);
+
             // Make the RPC request
             const response = await makeRpcRequest<{ result: string }>(request.method, [request.payee_address, request.amount]);
 
             // Log and notify about the successful transaction
-            console.log(notifierMessage.formatSuccessLTCTransaction(request.payway, request.currency, response));
-            await modules.sendMessageToTelegram(notifierMessage.formatSuccessLTCTransaction(request.payway, request.currency, response));
+            const successMsg = notifierMessage.formatSuccessLTCTransaction(request.payway, request.currency, response);
+            logger.info(network, successMsg);
+            await modules.sendMessageToTelegram(successMsg);
 
             // Return the transaction hash
             return response.result;
         } catch (error) {
             // Log and notify about the error in the transaction
-            console.log(notifierMessage.formatErrorLTC(request.payway, request.currency, {}));
-            await modules.sendMessageToTelegram(notifierMessage.formatErrorLTC(request.payway, request.currency, {}));
+            const errorMsg = notifierMessage.formatErrorLTC(request.payway, request.currency, error);
+            logger.error(network, errorMsg);
+            await modules.sendMessageToTelegram(errorMsg);
             // Rethrow error for further handling
             throw error;
         }

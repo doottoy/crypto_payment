@@ -39,8 +39,13 @@ export class PayoutService {
      * Determines whether an error is network-related (DNS, timeout, connection).
      */
     private isNetworkError(err: any): boolean {
-        const msg = (err.message || '').toLowerCase();
-        return ['timeout', 'connection', 'enotfound', 'failed to fetch', 'invalid json rpc'].some(sub => msg.includes(sub));
+        const msg = (
+            err?.message ||
+            err?.data?.message ||
+            err?.toString?.() ||
+            ''
+        ).toLowerCase();
+        return Const.NETWORK_ERROR_PATTERNS.some(sub => msg.includes(sub));
     }
 
     /**
@@ -79,6 +84,18 @@ export class PayoutService {
         return web3.utils.toWei(amount, unit as any);
     }
 
+    private clampGasLimit(estimated: number, isTokenTransfer: boolean): number {
+        const withBuffer = Math.ceil(estimated * 1.2) + 5000;
+
+        const MAX_TOKEN = 120000;
+        const MAX_NATIVE = 80000;
+
+        const cap = isTokenTransfer ? MAX_TOKEN : MAX_NATIVE;
+        const MIN = isTokenTransfer ? 60000 : 21000;
+
+        return Math.max(MIN, Math.min(withBuffer, cap));
+    }
+
     /**
      * Picks a gas-price multiplier based on current network congestion.
      */
@@ -94,37 +111,29 @@ export class PayoutService {
     }
 
     /**
-     * Attempts to send a transaction, iterating over rpcUrls until one succeeds.
-     * @returns the transaction hash
+     * Tries to prepare transaction data (nonce, gas, etc.) on all RPCs, returns first valid result.
      */
-    async sendTransaction(
+    private async prepareTxData(
         payeeAddress: string,
         amount: string,
         contract: string,
         currency: string
-    ): Promise<string> {
-        let lastErr: any;
-        const network = this.payway.toUpperCase();
-
+    ): Promise<{ tx: any; web3: Web3; sender: string }> {
+        let lastErr;
         for (let i = 0; i < this.rpcUrls.length; i += 1) {
             const url = this.rpcUrls[i];
-
-            logger.info(network, `🔄 Trying provider [${url}]`);
-
-            const start = Date.now();
             const web3 = new Web3(
                 new Web3.providers.HttpProvider(url, { timeout: 10_000 })
             );
-            web3.eth.accounts.wallet.clear();
-            web3.eth.accounts.wallet.add(this.privateKey);
-            const sender = web3.eth.accounts.wallet[0].address;
-
             try {
+                web3.eth.accounts.wallet.clear();
+                web3.eth.accounts.wallet.add(this.privateKey);
+                const sender = web3.eth.accounts.wallet[0].address;
+
                 const [nonce, gasPrice] = await Promise.all([
                     web3.eth.getTransactionCount(sender),
                     web3.eth.getGasPrice()
                 ]);
-
                 const multiplier = await this.getDynamicMultiplier(web3);
                 const increasedGasPrice = Math.ceil(Number(gasPrice) * multiplier).toString();
 
@@ -146,10 +155,61 @@ export class PayoutService {
                 }
 
                 const estimatedGas: number = await web3.eth.estimateGas(tx);
-                tx.gas = estimatedGas + 3_000_000;
+                const isTokenTransfer = Boolean(contract);
+                tx.gas = this.clampGasLimit(estimatedGas, isTokenTransfer);
 
-                const signed = await web3.eth.accounts.signTransaction(tx, this.privateKey);
-                const receipt = await web3.eth.sendSignedTransaction(signed.rawTransaction!);
+                return { tx, web3, sender };
+            } catch (err: any) {
+                lastErr = err;
+                logger.error('TX_PREP', `❌  Failed to prepare tx: ${err?.message || err?.toString?.() || String(err)}`);
+                if (!this.isNetworkError(err)) {
+                    throw err;
+                }
+                logger.warn('TX_PREP', `⚠️ Retrying tx preparation with next provider`);
+            }
+        }
+        throw new Error(`All RPC providers failed during tx preparation: ${lastErr?.message || lastErr?.toString?.() || String(lastErr)}`
+        );
+    }
+
+    /**
+     * Attempts to send a transaction, iterating over rpcUrls until one succeeds.
+     * @returns the transaction hash
+     */
+    async sendTransaction(
+        payeeAddress: string,
+        amount: string,
+        contract: string,
+        currency: string
+    ): Promise<string> {
+        let lastErr: any;
+        const network = this.payway.toUpperCase();
+
+        const { tx, web3, sender } = await this.prepareTxData(
+            payeeAddress,
+            amount,
+            contract,
+            currency
+        );
+
+        const signed = await web3.eth.accounts.signTransaction(tx, this.privateKey);
+        const rawTx = signed.rawTransaction!;
+
+        logger.info(network, `✍️ Transaction RawTx ${rawTx}`);
+        logger.info(network, `📝 Transaction hash: ${Web3.utils.keccak256(rawTx)}`);
+
+        for (let i = 0; i < this.rpcUrls.length; i += 1) {
+            const url = this.rpcUrls[i];
+            const web3Send = new Web3(
+                new Web3.providers.HttpProvider(url, { timeout: 10000 })
+            );
+
+            logger.info(network, `🔄 Trying provider [${url}]`);
+
+            const start = Date.now();
+
+            try {
+                const receipt = await web3Send.eth.sendSignedTransaction(rawTx);
 
                 const duration = Date.now() - start;
                 const successMsg = notifierMessage.formatSuccessEVMTransaction(
@@ -174,18 +234,17 @@ export class PayoutService {
                 );
                 await modules.sendMessageToTelegram(errorMsg);
 
-                logger.error(network, `❌  [${url}] failed in ${duration}ms — ${err.message || err}`);
+                logger.error(network, `❌  [${url}] failed in ${duration}ms — ${err?.message || err?.toString?.() || String(err)}`);
 
                 if (!this.isNetworkError(err)) {
                     throw err;
                 }
 
-                logger.warn(network, `⚠️ Retrying with next provider`);
+                logger.warn(network, `⚠️ Retrying with next provider — re-sending the same rawTx (hash: ${Web3.utils.keccak256(rawTx)})`);
             }
         }
 
-        throw new Error(
-            `All RPC providers failed for payway = ${this.payway}: ${lastErr?.message || lastErr}`
+        throw new Error(`All RPC providers failed for payway = ${this.payway}: ${lastErr?.message || lastErr?.toString?.() || String(lastErr)}`
         );
     }
 }

@@ -1,4 +1,5 @@
 /* Internal dependencies */
+import { logger } from '../utils/logger';
 import { modules, makeRpcRequest } from '../utils/modules';
 import { notifierMessage } from '../utils/message-formatter';
 
@@ -16,25 +17,72 @@ export class LtcMultiPayoutService {
      * @returns A Promise that resolves with the transaction ID.
      */
     async ltcMultiSend(request: LtcSendManyRequestBody) {
+        const network = request.payway.toUpperCase();
         try {
-            // Make the RPC request
-            const response = await makeRpcRequest<{ result: string }>(request.method, [
-                request.account,
-                request.recipients,
-                request.minconf,
-                request.comment
-            ]);
+            const amounts: Record<string, number> = {};
 
-            // Log and notify about the successful transaction
-            console.log(notifierMessage.formatSuccessMultiSendLTC(request.payway, request.currency, response));
-            await modules.sendMessageToTelegram(notifierMessage.formatSuccessMultiSendLTC(request.payway, request.currency, response));
+            const isArray = Array.isArray((request as any).recipients);
+            if (isArray) {
+                const list = (request as any).recipients as Array<{ address: string; amount: number | string }>;
+                for (let i = 0; i < list.length; i++) {
+                    const r = list[i];
+                    const v = typeof r.amount === 'string' ? parseFloat(r.amount) : r.amount;
+                    if (!globalThis.Number.isFinite(v) || v <= 0) {
+                        throw new Error(`Invalid amount for ${r.address}: ${r.amount}`);
+                    }
+                    amounts[r.address] = v;
+                }
+            } else {
+                const map = (request as any).recipients as Record<string, number | string>;
+                for (const addr in map) {
+                    if (!Object.prototype.hasOwnProperty.call(map, addr)) continue;
+                    const raw = map[addr];
+                    const v = typeof raw === 'string' ? parseFloat(raw) : raw;
+                    if (!globalThis.Number.isFinite(v) || v <= 0) {
+                        throw new Error(`Invalid amount for ${addr}: ${String(raw)}`);
+                    }
+                    amounts[addr] = v;
+                }
+            }
 
-            // Return the transaction hash
-            return response.result;
+            const keys = Object.keys(amounts);
+            const subtractFrom: string[] = keys.length ? [keys[keys.length - 1]] : [];
+
+            const rpc = await makeRpcRequest<{ result: string }>(
+                'sendmany',
+                [
+                    "",
+                    amounts,
+                    request.minconf ?? 1,
+                    request.comment ?? "",
+                    subtractFrom
+                ],
+                (request as any).account ? { wallet: (request as any).account } : undefined
+            );
+
+            logger.info(network, `✍️ Multisend request to ${Object.keys(amounts).length} recipients`);
+
+            if ((rpc as any).error) {
+                logger.error(network, `❌ LTC multisend error: ${JSON.stringify((rpc as any).error)}`);
+                await modules.sendMessageToTelegram(
+                    notifierMessage.formatErrorMultiSendLTC(request.payway, request.currency, (rpc as any).error)
+                );
+                throw new Error(JSON.stringify((rpc as any).error));
+            }
+
+            const successMsg = notifierMessage.formatSuccessMultiSendLTC(request.payway, request.currency, rpc);
+            logger.info(network, successMsg);
+            await modules.sendMessageToTelegram(
+                successMsg
+            );
+
+            return rpc.result;
         } catch (error) {
-            // Log and notify about the error in the transaction
-            console.log(notifierMessage.formatErrorMultiSendLTC(request.payway, request.currency, {}));
-            await modules.sendMessageToTelegram(notifierMessage.formatErrorMultiSendLTC(request.payway, request.currency, {}));
+            const errorMsg = notifierMessage.formatErrorMultiSendLTC(request.payway, request.currency, error);
+            logger.error(network, errorMsg);
+            await modules.sendMessageToTelegram(
+                errorMsg
+            );
             throw error;
         }
     }
