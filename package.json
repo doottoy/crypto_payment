@@ -26,7 +26,8 @@
     "google-spreadsheet": "^4.1.4",
     "node-fetch": "^2.7.0",
     "tronweb": "^6.0.0",
-    "uuid": "^10.0.0"
+    "uuid": "^10.0.0",
+    "viem": "^2.43.5"
   },
   "devDependencies": {
     "@types/chai": "^4.3.17",

@@ -9,7 +9,7 @@ export const Const = {
     MULTI_SEND_GAS_LIMIT: 1000000,
 
     // Tron fee limit
-    TRON_FEE_LIMIT: 100_000_000,
+    TRON_FEE_LIMIT: 100000000,
 
     EVM_FEE: {
         GWEI: 10n ** 9n,
@@ -214,5 +214,16 @@ export const Const = {
         '524 a timeout occurred',
         'request entity too large',
         'typeerror: networkerror'
-    ] as string[]
+    ] as string[],
+    FEE_BUMP_ERROR_PATTERNS: [
+        'replacement transaction underpriced',
+        'fee too low',
+        'nonce too low',
+        'already known'
+    ] as string[],
+    MINIMUM_TIP_ERROR_PATTERNS: [
+        'minimum needed',
+        'gas price below minimum',
+        'tip cap'
+    ] as string[],
 };

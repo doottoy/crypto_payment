@@ -1,10 +1,11 @@
 /* External dependencies */
-import Web3 from 'web3';
+import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
+import { createPublicClient, Address, Hex, encodeFunctionData, http, keccak256, parseUnits, type PublicClient } from 'viem';
 
 /* Internal dependencies */
 import { logger } from '../utils/logger';
-import { modules } from '../utils/modules';
-import { notifierMessage } from '../utils/message-formatter';
+import { getChainForPayway, isEvmNetworkError } from '../utils/evm';
+import { getEvmRpcUrlsForPayway, EVMTransactionLogger } from '../utils/modules';
 
 /* Constants */
 import { Const } from '../constants/const';
@@ -16,7 +17,6 @@ import { Const } from '../constants/const';
 export class PayoutService {
     private rpcUrls!: string[];
     private decimalsCache: Record<string, number> = {};
-
     /**
      * Constructs a new instance of PayoutService.
      * @param payway – the payment method
@@ -29,59 +29,48 @@ export class PayoutService {
      * Must be called before sendTransaction().
      */
     async init() {
-        this.rpcUrls = modules.getEvmRpcUrlsForPayway(this.payway);
+        this.rpcUrls = getEvmRpcUrlsForPayway(this.payway);
         if (!this.rpcUrls.length) {
             throw new Error(`No RPC providers configured for payway = ${this.payway}`);
         }
     }
 
     /**
-     * Determines whether an error is network-related (DNS, timeout, connection).
+     * Converts a human-readable amount to base units using bigint math.
      */
-    private isNetworkError(err: any): boolean {
-        const msg = (
-            err?.message ||
-            err?.data?.message ||
-            err?.toString?.() ||
-            ''
-        ).toLowerCase();
-        return Const.NETWORK_ERROR_PATTERNS.some(sub => msg.includes(sub));
+    private convertToBaseUnit(amount: string, decimals: number): bigint {
+        return parseUnits(amount, decimals);
     }
 
     /**
-     * Fetches token decimals via RPC and caches the result.
+     * Fetch token decimals via RPC and cache the result.
      */
     private async fetchDecimals(
-        web3: Web3,
-        tokenContract: string,
+        client: PublicClient,
+        tokenContract: Address,
         fallbackDecimals = 18
     ): Promise<number> {
-        if (this.decimalsCache[tokenContract] !== undefined) {
-            return this.decimalsCache[tokenContract];
+        const key = tokenContract.toLowerCase();
+        if (this.decimalsCache[key] !== undefined) {
+            return this.decimalsCache[key];
         }
         try {
-            const contract = new web3.eth.Contract(Const.MULTI_SEND_ABI_CONTRACT, tokenContract);
-            const decStr: string = await contract.methods.decimals().call();
-            const dec = Number(decStr);
-            this.decimalsCache[tokenContract] = dec;
-            return dec;
+            const decVal = await client.readContract({
+                address: tokenContract,
+                abi: Const.MULTI_SEND_ABI_CONTRACT as any,
+                functionName: 'decimals'
+            });
+            const dec = Number(decVal);
+            if (Number.isFinite(dec)) {
+                this.decimalsCache[key] = dec;
+                return dec;
+            }
+            this.decimalsCache[key] = fallbackDecimals;
+            return fallbackDecimals;
         } catch {
-            this.decimalsCache[tokenContract] = fallbackDecimals;
+            this.decimalsCache[key] = fallbackDecimals;
             return fallbackDecimals;
         }
-    }
-
-    /**
-     * Converts a human-readable amount to base units (wei, gwei, etc.).
-     */
-    private convertToBaseUnit(
-        web3: Web3,
-        amount: string,
-        decimals: number
-    ): string {
-        const unit = Const.DECIMALS[decimals];
-        if (!unit) throw new Error(`Unsupported token decimals: ${decimals}`);
-        return web3.utils.toWei(amount, unit as any);
     }
 
     private clampGasLimit(estimated: number, isTokenTransfer: boolean): number {
@@ -98,77 +87,203 @@ export class PayoutService {
 
     /**
      * Picks a gas-price multiplier based on current network congestion.
+     * Implemented using bigint to avoid floating-point issues.
      */
-    private async getDynamicMultiplier(web3: Web3): Promise<number> {
+    private async getDynamicGasPrice(client: PublicClient): Promise<bigint> {
         try {
-            const gp = Number(await web3.eth.getGasPrice());
-            if (gp < 20e9) return 1.5;
-            if (gp < 50e9) return 2.0;
-            return 2.1;
+            const gp = await client.getGasPrice();
+            const GWEI = 10n ** 9n;
+            if (gp < 20n * GWEI) {
+                return (gp * 3n) / 2n;
+            }
+            if (gp < 50n * GWEI) {
+                return gp * 2n;
+            }
+            return (gp * 21n) / 10n;
         } catch {
-            return 2;
+            // Fallback: arbitrary 2x multiplier on failure
+            const gp = await client.getGasPrice();
+            return gp * 2n;
         }
     }
 
     /**
-     * Tries to prepare transaction data (nonce, gas, etc.) on all RPCs, returns first valid result.
+     * Get basic transaction data (chainId, nonce, gasPrice) from client
+     */
+    private async getBasicTxData(client: PublicClient, account: PrivateKeyAccount): Promise<{
+        chainId: number;
+        nonce: number;
+        gasPrice: bigint;
+    }> {
+        const [chainId, nonce, gasPrice] = await Promise.all([
+            client.getChainId(),
+            client.getTransactionCount({ address: account.address }),
+            this.getDynamicGasPrice(client)
+        ]);
+        return { chainId, nonce, gasPrice };
+    }
+
+    /**
+     * Prepare native token transfer transaction
+     */
+    private prepareNativeTransfer(payeeAddress: string, amount: string): { to: Address; value: bigint } {
+        return {
+            to: payeeAddress as Address,
+            value: this.convertToBaseUnit(amount, 18)
+        };
+    }
+
+    /**
+     * Prepare ERC20 token transfer transaction
+     */
+    private async prepareTokenTransfer(
+        client: PublicClient,
+        payeeAddress: string,
+        amount: string,
+        contract: string
+    ): Promise<{ to: Address; data: string }> {
+        const tokenAddress = contract as Address;
+        const decimals = await this.fetchDecimals(client, tokenAddress);
+        const value = this.convertToBaseUnit(amount, decimals);
+        const data = encodeFunctionData({
+            abi: Const.ABI_CONTRACT,
+            functionName: 'transfer',
+            args: [payeeAddress as Address, value]
+        });
+
+        return { to: tokenAddress, data };
+    }
+
+    /**
+     * Estimate and set gas limit for transaction
+     */
+    private async estimateAndSetGas(
+        client: PublicClient,
+        tx: any,
+        accountAddress: Address,
+        isTokenTransfer: boolean
+    ): Promise<void> {
+        const estimatedGas = await client.estimateGas({
+            ...tx,
+            account: accountAddress
+        } as any);
+        tx.gas = BigInt(this.clampGasLimit(Number(estimatedGas), isTokenTransfer));
+    }
+
+    /**
+     * Builds and signs a transaction using the first healthy RPC.
      */
     private async prepareTxData(
         payeeAddress: string,
         amount: string,
         contract: string,
         currency: string
-    ): Promise<{ tx: any; web3: Web3; sender: string }> {
+    ): Promise<{ rawTx: Hex; sender: Hex }> {
         let lastErr;
+        const chain = getChainForPayway(this.payway);
+        const account = privateKeyToAccount(
+            (this.privateKey.startsWith('0x') ? this.privateKey : `0x${this.privateKey}`) as Hex
+        );
+
         for (let i = 0; i < this.rpcUrls.length; i += 1) {
             const url = this.rpcUrls[i];
-            const web3 = new Web3(
-                new Web3.providers.HttpProvider(url, { timeout: 10_000 })
-            );
-            try {
-                web3.eth.accounts.wallet.clear();
-                web3.eth.accounts.wallet.add(this.privateKey);
-                const sender = web3.eth.accounts.wallet[0].address;
+            const transport = http(url, { timeout: 10000 });
+            const client = createPublicClient({ chain, transport });
 
-                const [nonce, gasPrice] = await Promise.all([
-                    web3.eth.getTransactionCount(sender),
-                    web3.eth.getGasPrice()
-                ]);
-                const multiplier = await this.getDynamicMultiplier(web3);
-                const increasedGasPrice = Math.ceil(Number(gasPrice) * multiplier).toString();
+            try {
+                const { chainId, nonce, gasPrice } = await this.getBasicTxData(client, account);
 
                 let tx: any = {
-                    from: sender,
+                    chainId,
                     nonce,
-                    gasPrice: increasedGasPrice
+                    gasPrice
                 };
 
+                // Prepare transaction data based on type
                 if (!contract) {
-                    const value = this.convertToBaseUnit(web3, amount, 18);
-                    tx = { ...tx, to: payeeAddress, value };
+                    Object.assign(tx, this.prepareNativeTransfer(payeeAddress, amount));
                 } else {
-                    const decimals = await this.fetchDecimals(web3, contract);
-                    const value = this.convertToBaseUnit(web3, amount, decimals);
-                    const tokenC = new web3.eth.Contract(Const.ABI_CONTRACT, contract);
-                    const data = tokenC.methods.transfer(payeeAddress, value).encodeABI();
-                    tx = { ...tx, to: contract, data };
+                    Object.assign(tx, await this.prepareTokenTransfer(client, payeeAddress, amount, contract));
                 }
 
-                const estimatedGas: number = await web3.eth.estimateGas(tx);
                 const isTokenTransfer = Boolean(contract);
-                tx.gas = this.clampGasLimit(estimatedGas, isTokenTransfer);
+                await this.estimateAndSetGas(client, tx, account.address, isTokenTransfer);
 
-                return { tx, web3, sender };
+                const rawTx = await account.signTransaction(tx);
+                return { rawTx, sender: account.address };
             } catch (err: any) {
                 lastErr = err;
                 logger.error('TX_PREP', `❌  Failed to prepare tx: ${err?.message || err?.toString?.() || String(err)}`);
-                if (!this.isNetworkError(err)) {
+                if (!isEvmNetworkError(err)) {
                     throw err;
                 }
                 logger.warn('TX_PREP', `⚠️ Retrying tx preparation with next provider`);
             }
         }
         throw new Error(`All RPC providers failed during tx preparation: ${lastErr?.message || lastErr?.toString?.() || String(lastErr)}`
+        );
+    }
+
+    /**
+     * Log transaction preparation info
+     */
+    private logTransactionPreparation(rawTx: Hex): void {
+        const network = this.payway.toUpperCase();
+        logger.info(network, `✍️ Transaction RawTx ${rawTx}`);
+        logger.info(network, `📝 Transaction hash: ${keccak256(rawTx)}`);
+    }
+
+    /**
+     * Send transaction via single RPC provider
+     */
+    private async sendViaProvider(
+        client: PublicClient,
+        rawTx: Hex,
+        url: string
+    ): Promise<{ hash: string; receipt: any }> {
+        const hash = await client.sendRawTransaction({ serializedTransaction: rawTx });
+        const receipt = await client.waitForTransactionReceipt({ hash });
+        return { hash: receipt.transactionHash, receipt };
+    }
+
+    /**
+     * Log successful transaction
+     */
+    private async logSuccessfulTransaction(
+        result: { hash: string; receipt: any },
+        sender: Hex,
+        url: string,
+        currency: string,
+        duration: number
+    ): Promise<void> {
+        await EVMTransactionLogger.logSuccess(
+            this.payway,
+            currency,
+            result.hash,
+            result.receipt,
+            url,
+            sender,
+            duration,
+            false
+        );
+    }
+
+    /**
+     * Log transaction error
+     */
+    private async logTransactionError(
+        error: any,
+        url: string,
+        currency: string,
+        duration: number
+    ): Promise<void> {
+        await EVMTransactionLogger.logError(
+            this.payway,
+            currency,
+            error,
+            url,
+            duration,
+            false
         );
     }
 
@@ -184,63 +299,36 @@ export class PayoutService {
     ): Promise<string> {
         let lastErr: any;
         const network = this.payway.toUpperCase();
+        const { rawTx, sender } = await this.prepareTxData(payeeAddress, amount, contract, currency);
 
-        const { tx, web3, sender } = await this.prepareTxData(
-            payeeAddress,
-            amount,
-            contract,
-            currency
-        );
-
-        const signed = await web3.eth.accounts.signTransaction(tx, this.privateKey);
-        const rawTx = signed.rawTransaction!;
-
-        logger.info(network, `✍️ Transaction RawTx ${rawTx}`);
-        logger.info(network, `📝 Transaction hash: ${Web3.utils.keccak256(rawTx)}`);
+        this.logTransactionPreparation(rawTx);
 
         for (let i = 0; i < this.rpcUrls.length; i += 1) {
             const url = this.rpcUrls[i];
-            const web3Send = new Web3(
-                new Web3.providers.HttpProvider(url, { timeout: 10000 })
-            );
+            const client = createPublicClient({
+                transport: http(url, { timeout: 10000 })
+            });
 
             logger.info(network, `🔄 Trying provider [${url}]`);
-
             const start = Date.now();
 
             try {
-                const receipt = await web3Send.eth.sendSignedTransaction(rawTx);
-
+                const result = await this.sendViaProvider(client, rawTx, url);
                 const duration = Date.now() - start;
-                const successMsg = notifierMessage.formatSuccessEVMTransaction(
-                    this.payway,
-                    currency,
-                    receipt
-                );
+                await this.logSuccessfulTransaction(result, sender, url, currency, duration);
 
-                logger.info(network, `✅  Success via [${url}] in ${duration}ms — txHash = ${receipt.transactionHash}`);
-                logger.info(network, `✅  ${successMsg}`);
-                await modules.sendMessageToTelegram(successMsg);
-
-                return receipt.transactionHash;
+                return result.hash;
             } catch (err: any) {
                 const duration = Date.now() - start;
                 lastErr = err;
 
-                const errorMsg = notifierMessage.formatErrorEVM(
-                    this.payway,
-                    currency,
-                    lastErr
-                );
-                await modules.sendMessageToTelegram(errorMsg);
+                await this.logTransactionError(err, url, currency, duration);
 
-                logger.error(network, `❌  [${url}] failed in ${duration}ms — ${err?.message || err?.toString?.() || String(err)}`);
-
-                if (!this.isNetworkError(err)) {
+                if (!isEvmNetworkError(err)) {
                     throw err;
                 }
 
-                logger.warn(network, `⚠️ Retrying with next provider — re-sending the same rawTx (hash: ${Web3.utils.keccak256(rawTx)})`);
+                logger.warn(network, `⚠️ Retrying with next provider — re-sending the same rawTx (hash: ${keccak256(rawTx)})`);
             }
         }
 
