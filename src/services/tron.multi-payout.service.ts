@@ -46,6 +46,52 @@ export class TronMultiPayoutService {
     }
 
     /**
+     * Prepare recipient data for multi-send
+     */
+    private prepareMultiSendData(recipients: Recipient[]): { addresses: string[]; amounts: string[] } {
+        return {
+            addresses: recipients.map(r => r.address),
+            amounts: recipients.map(r => this.convertToBaseUnit(r.amount, 6))
+        };
+    }
+
+    /**
+     * Send native TRX multi-transfer
+     */
+    private async sendNativeMultiTransfer(addresses: string[], amounts: string[]): Promise<string> {
+        return await this.contractInstance
+            .multiTransferTrx(addresses, amounts)
+            .send({ feeLimit: Const.TRON_FEE_LIMIT });
+    }
+
+    /**
+     * Send TRC20 token multi-transfer
+     */
+    private async sendTokenMultiTransfer(token: string, addresses: string[], amounts: string[]): Promise<string> {
+        return await this.contractInstance
+            .multiTransferToken(token, addresses, amounts)
+            .send({ feeLimit: Const.TRON_FEE_LIMIT });
+    }
+
+    /**
+     * Log successful multi-send transaction
+     */
+    private async logSuccessfulMultiSend(currency: string, txId: string): Promise<void> {
+        const successMsg = notifierMessage.formatSuccessTronMultiSendTransaction(currency, txId);
+        console.log(successMsg);
+        await modules.sendMessageToTelegram(successMsg);
+    }
+
+    /**
+     * Log multi-send transaction error
+     */
+    private async logMultiSendError(currency: string, error: any): Promise<void> {
+        const errorMsg = notifierMessage.formatErrorTronMultiSendTransaction(currency, error);
+        console.error(errorMsg);
+        await modules.sendMessageToTelegram(errorMsg);
+    }
+
+    /**
      * Sends multiple transactions in a single transaction.
      * @param token — (optional) address of TRC20 token, if empty send TRX.
      * @param recipients — Array of recipient addresses and amounts to be sent.
@@ -53,34 +99,15 @@ export class TronMultiPayoutService {
      */
     async multiSend(token: string | undefined, recipients: Recipient[], currency: string): Promise<string> {
         try {
-            let txId: string;
+            const { addresses, amounts } = this.prepareMultiSendData(recipients);
+            const txId = token
+                ? await this.sendTokenMultiTransfer(token, addresses, amounts)
+                : await this.sendNativeMultiTransfer(addresses, amounts);
 
-            // Prepare recipient data with proper scaling
-            const addresses = recipients.map(r => r.address);
-            const amounts = recipients.map(r => this.convertToBaseUnit(r.amount, 6));
-
-            if (!token) {
-                // Call multiTransferTrx (addresses[], amounts[]) for send native token
-                txId = await this.contractInstance
-                    .multiTransferTrx(addresses, amounts)
-                    .send({ feeLimit: Const.TRON_FEE_LIMIT });
-            } else {
-                // Call multiTransferToken(token, addresses[], amounts[]) for send trc20 token.
-                txId = await this.contractInstance
-                    .multiTransferToken(token, addresses, amounts)
-                    .send({ feeLimit: Const.TRON_FEE_LIMIT });
-            }
-
-            // Log and notify about the successful transaction
-            console.log(notifierMessage.formatSuccessTronMultiSendTransaction(currency, txId));
-            await modules.sendMessageToTelegram(notifierMessage.formatSuccessTronMultiSendTransaction(currency, txId));
-
+            await this.logSuccessfulMultiSend(currency, txId);
             return txId;
         } catch (error) {
-            // Log and notify about the transaction error
-            console.error(notifierMessage.formatErrorTronMultiSendTransaction(currency, JSON.stringify(error)));
-            await modules.sendMessageToTelegram(notifierMessage.formatErrorTronMultiSendTransaction(currency, error));
-
+            await this.logMultiSendError(currency, error);
             throw error;
         }
     }

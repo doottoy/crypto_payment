@@ -1,12 +1,12 @@
 /* External dependencies */
-import Web3 from 'web3';
-import { Contract } from 'web3-eth-contract';
+import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
+import { Address, Hex, createPublicClient, encodeFunctionData, http, keccak256, parseUnits, type PublicClient } from 'viem';
 
 /* Internal dependencies */
 import { logger } from '../utils/logger';
-import { modules } from '../utils/modules';
 import { Recipient } from '../interfaces/payout.interface';
-import { notifierMessage } from '../utils/message-formatter';
+import { getChainForPayway, isEvmNetworkError } from '../utils/evm';
+import { getEvmRpcUrlsForPayway, EVMTransactionLogger } from '../utils/modules';
 
 /* Constants */
 import { Const } from '../constants/const';
@@ -25,7 +25,7 @@ export class MultiPayoutService {
     constructor(private payway: string, private privateKey: string) {}
 
     async init(multiSendContractAddress: string) {
-        this.rpcUrls = modules.getEvmRpcUrlsForPayway(this.payway);
+        this.rpcUrls = getEvmRpcUrlsForPayway(this.payway);
         if (!this.rpcUrls.length) {
             throw new Error(`No RPC providers configured for payway = ${this.payway}`);
         }
@@ -33,46 +33,36 @@ export class MultiPayoutService {
     }
 
     /**
-     * Infra/network error classifier for failover
+     * Convert human-readable amount to base units using bigint.
      */
-    private isNetworkError(err: any): boolean {
-        const msg = (err?.message || err?.data?.message || err?.toString?.() || '').toLowerCase();
-        return (Const.NETWORK_ERROR_PATTERNS as string[]).some((sub) => msg.includes(sub));
-    }
-
-    /**
-     * Const.DECIMALS + web3.utils.toWei(amount, unit)
-     */
-    private convertToBaseUnit(web3: Web3, amount: string, decimals: number): string {
-        const unit = (Const.DECIMALS as Record<number, string>)[decimals];
-        if (!unit) throw new Error(`Unsupported token decimals: ${decimals}`);
-        return web3.utils.toWei(amount, unit as any);
+    private convertToBaseUnit(amount: string, decimals: number): bigint {
+        return parseUnits(amount, decimals);
     }
 
     /**
      * Build initial fees: EIP-1559 if baseFee present, otherwise legacy gasPrice
      * Applies Polygon-specific tip floor when needed
      */
-    private async buildInitialFees(web3: Web3): Promise<{
+    private async buildInitialFees(client: PublicClient): Promise<{
         type2: boolean;
         maxFeePerGas?: bigint;
         maxPriorityFeePerGas?: bigint;
         gasPrice?: bigint;
     }> {
         const [chainId, blk] = await Promise.all([
-            web3.eth.getChainId(),
-            web3.eth.getBlock('pending') as any,
+            client.getChainId(),
+            client.getBlock({ blockTag: 'pending' as any }) as any,
         ]);
 
         const baseFee = blk?.baseFeePerGas != null ? BigInt(blk.baseFeePerGas) : 0n;
 
         let tip = 0n;
         try {
-            const tipHex =
-                (web3 as any).eth?.request?.({ method: 'eth_maxPriorityFeePerGas', params: [] }) ??
-                null;
-            const val = await tipHex;
-            tip = val ? BigInt(val) : 0n;
+            const val = await client.request({
+                method: 'eth_maxPriorityFeePerGas',
+                params: []
+            } as any);
+            tip = val ? BigInt(val as string) : 0n;
         } catch {}
         if (tip === 0n) tip = 2n * GWEI;
 
@@ -93,7 +83,7 @@ export class MultiPayoutService {
             };
         }
 
-        const gp = BigInt(await web3.eth.getGasPrice());
+        const gp = await client.getGasPrice();
         return { type2: false, gasPrice: gp };
     }
 
@@ -120,58 +110,189 @@ export class MultiPayoutService {
     }
 
     /**
+     * Check if error requires fee bump
+     */
+    private shouldBumpFees(errorMessage: string): boolean {
+        const msg = errorMessage.toLowerCase();
+        return Const.FEE_BUMP_ERROR_PATTERNS.some(pattern => msg.includes(pattern));
+    }
+
+    /**
+     * Handle network errors that require higher minimum tip
+     */
+    private async handleMinimumTipError(
+        error: any,
+        fees: any,
+        client: PublicClient
+    ): Promise<boolean> {
+        const msg = (error.message || '').toLowerCase();
+        if (!Const.MINIMUM_TIP_ERROR_PATTERNS.some(pattern => msg.includes(pattern))) {
+            return false;
+        }
+
+        try {
+            const match = (error.message || '').match(/minimum needed\s+(\d+)/i);
+            const needed = match ? BigInt(match[1]) : TIP_FLOOR_POLYGON;
+
+            if (fees.type2) {
+                if ((fees.maxPriorityFeePerGas as bigint) < needed) {
+                    const pending = (await client.getBlock({ blockTag: 'pending' as any })) as any;
+                    const base = pending?.baseFeePerGas != null ? BigInt(pending.baseFeePerGas) : 0n;
+
+                    let nextMaxFee = base > 0n ? base * 2n + needed : (fees.maxFeePerGas as bigint);
+                    if (nextMaxFee < base + needed) nextMaxFee = base + needed;
+
+                    const nextTip = needed > MAX_TIP_CAP ? MAX_TIP_CAP : needed;
+
+                    fees.maxPriorityFeePerGas = nextTip;
+                    fees.maxFeePerGas = nextMaxFee > MAX_FEE_CAP ? MAX_FEE_CAP : nextMaxFee;
+                } else {
+                    this.bumpFees(fees);
+                }
+            } else {
+                this.bumpFees(fees);
+            }
+
+            const neededGwei = Number(needed) / Number(GWEI);
+            logger.warn(this.payway.toUpperCase(), `⚠️ RPC requires higher tip; raising to ≥ ${neededGwei} Gwei`);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * Log successful transaction
+     */
+    private async logSuccessfulTransaction(
+        result: { txHash: string; receipt: any; via: string },
+        currency: string
+    ): Promise<void> {
+        await EVMTransactionLogger.logSuccess(
+            this.payway,
+            currency,
+            result.txHash,
+            result.receipt,
+            result.via,
+            undefined,
+            undefined,
+            true
+        );
+    }
+
+    /**
+     * Log transaction error
+     */
+    private async logTransactionError(
+        error: any,
+        currency: string
+    ): Promise<void> {
+        await EVMTransactionLogger.logError(
+            this.payway,
+            currency,
+            error,
+            '',
+            undefined,
+            true
+        );
+    }
+
+    /**
+     * Get decimals from multi-send contract with fallback to 18
+     */
+    private async getContractDecimals(client: PublicClient, contractAddress: Address): Promise<number> {
+        try {
+            const decVal = await client.readContract({
+                address: contractAddress,
+                abi: Const.MULTI_SEND_ABI_CONTRACT as any,
+                functionName: 'decimals'
+            });
+            const decNum = Number(decVal);
+            if (Number.isFinite(decNum)) {
+                logger.info(this.payway.toUpperCase(), `[DECIMALS] from multisend = ${decNum}`);
+                return decNum;
+            }
+        } catch {
+            logger.warn(this.payway.toUpperCase(), `[DECIMALS] multisend.decimals() failed, fallback = 18`);
+        }
+        return 18;
+    }
+
+    /**
+     * Prepare transaction data for multi-send
+     */
+    private prepareMultiSendData(recipients: Recipient[], decimals: number): { addresses: Address[]; amounts: bigint[] } {
+        return {
+            addresses: recipients.map((r) => r.address as Address),
+            amounts: recipients.map((r) => this.convertToBaseUnit(r.amount, decimals))
+        };
+    }
+
+    /**
+     * Estimate gas for multi-send transaction
+     */
+    private async estimateMultiSendGas(
+        client: PublicClient,
+        account: PrivateKeyAccount,
+        contractAddress: Address,
+        data: string
+    ): Promise<number> {
+        const estimatedGas = await client.estimateGas({
+            account,
+            to: contractAddress,
+            data: data as Hex,
+            value: 0n
+        });
+        return Math.min(Number(estimatedGas) + 10000, Const.MULTI_SEND_GAS_LIMIT);
+    }
+
+    /**
      * Prepare call data, gas, sender, pending nonce, chainId using the first healthy RPC
      */
     private async prepareCommon(
         recipients: Recipient[],
         multiSendContract: string,
     ): Promise<{
-        web3: Web3;
-        sender: string;
+        client: PublicClient;
+        sender: Address;
         chainId: number;
         nonce: number;
         gas: number;
         data: string;
+        account: PrivateKeyAccount;
     }> {
         let lastErr: any;
+        const chain = getChainForPayway(this.payway);
+        const account = privateKeyToAccount(
+            (this.privateKey.startsWith('0x') ? this.privateKey : `0x${this.privateKey}`) as Hex
+        );
 
         for (const url of this.rpcUrls) {
-            const web3 = new Web3(new Web3.providers.HttpProvider(url, { timeout: 10000 }));
+            const transport = http(url, { timeout: 10000 });
+            const client = createPublicClient({ chain, transport });
+
             try {
-                web3.eth.accounts.wallet.clear();
-                web3.eth.accounts.wallet.add(this.privateKey);
-                const sender = web3.eth.accounts.wallet[0].address;
+                const sender = account.address;
+                const decimals = await this.getContractDecimals(client, multiSendContract as Address);
+                const { addresses, amounts } = this.prepareMultiSendData(recipients, decimals);
 
-                const multi: Contract = new web3.eth.Contract(Const.MULTI_SEND_ABI_CONTRACT, multiSendContract);
+                const data = encodeFunctionData({
+                    abi: Const.MULTI_SEND_ABI_CONTRACT as any,
+                    functionName: 'multiSend',
+                    args: [addresses, amounts]
+                });
 
-                let decimals = 18;
-                try {
-                    const decStr: string = await (multi.methods as any).decimals?.().call();
-                    const decNum = Number(decStr);
-                    if (Number.isFinite(decNum)) decimals = decNum;
-                    logger.info(this.payway.toUpperCase(), `[DECIMALS] from multisend = ${decimals}`);
-                } catch {
-                    logger.warn(this.payway.toUpperCase(), `[DECIMALS] multisend.decimals() failed, fallback = 18`);
-                }
+                const gas = await this.estimateMultiSendGas(client, account, multiSendContract as Address, data);
+                const [nonce, chainId] = await Promise.all([
+                    client.getTransactionCount({ address: sender, blockTag: 'pending' }),
+                    client.getChainId()
+                ]);
 
-                const addrs = recipients.map((r) => r.address);
-                const amts = recipients.map((r) => this.convertToBaseUnit(web3, r.amount, decimals));
-
-                const data = multi.methods.multiSend(addrs, amts).encodeABI();
-
-                const estimatedGas: number = await multi.methods
-                    .multiSend(addrs, amts)
-                    .estimateGas({ from: sender, value: 0 });
-                const gas = Math.min(estimatedGas + 10_000, Const.MULTI_SEND_GAS_LIMIT);
-
-                const nonce = await web3.eth.getTransactionCount(sender, 'pending');
-                const chainId = await web3.eth.getChainId();
-
-                return { web3, sender, chainId, nonce, gas, data };
+                return { client, sender, chainId, nonce, gas, data, account };
             } catch (err: any) {
                 lastErr = err;
                 logger.error('MULTI_PREP', `❌  [${url}] prepare failed: ${err?.message || err}`);
-                if (!this.isNetworkError(err)) throw err;
+                if (!isEvmNetworkError(err)) throw err;
                 logger.warn('MULTI_PREP', '⚠️ Trying next provider...');
             }
         }
@@ -182,21 +303,57 @@ export class MultiPayoutService {
     /**
      * Send rawTx with failover, stop at first success
      */
-    private async fanoutSend(rawTx: string): Promise<{ txHash: string; receipt: any; via: string }> {
+    private async fanoutSend(rawTx: Hex): Promise<{ txHash: string; receipt: any; via: string }> {
         let lastErr: any;
+        const chain = getChainForPayway(this.payway);
         for (const url of this.rpcUrls) {
-            const w = new Web3(new Web3.providers.HttpProvider(url, { timeout: 10_000 }));
+            const client = createPublicClient({
+                chain,
+                transport: http(url, { timeout: 10000 })
+            });
             try {
-                const receipt = await w.eth.sendSignedTransaction(rawTx);
+                const hash = await client.sendRawTransaction({ serializedTransaction: rawTx });
+                const receipt = await client.waitForTransactionReceipt({ hash });
                 return { txHash: receipt.transactionHash, receipt, via: url };
             } catch (err: any) {
                 lastErr = err;
                 const msg = err?.message || err?.toString?.() || String(err);
                 logger.error('MULTI_SEND', `❌  [${url}] ${msg}`);
-                if (!this.isNetworkError(err)) throw err;
+                if (!isEvmNetworkError(err)) throw err;
             }
         }
         throw lastErr;
+    }
+
+    /**
+     * Create transaction object with current fees
+     */
+    private createTransactionObject(
+        sender: Address,
+        multiSendContract: string,
+        data: string,
+        gas: number,
+        nonce: number,
+        chainId: number,
+        fees: any
+    ): any {
+        const tx: any = {
+            account: sender as Hex,
+            to: multiSendContract as Address,
+            data,
+            gas: BigInt(gas),
+            nonce,
+            chainId,
+        };
+
+        if (fees.type2) {
+            tx.maxFeePerGas = fees.maxFeePerGas as bigint;
+            tx.maxPriorityFeePerGas = fees.maxPriorityFeePerGas as bigint;
+        } else {
+            tx.gasPrice = fees.gasPrice as bigint;
+        }
+
+        return tx;
     }
 
     /**
@@ -207,109 +364,58 @@ export class MultiPayoutService {
      */
     async multiSend(recipients: Recipient[], multiSendContract: string, currency: string): Promise<string> {
         const network = this.payway.toUpperCase();
-
         const prep = await this.prepareCommon(recipients, multiSendContract);
-        const { web3, sender, chainId, nonce, gas, data } = prep;
+        const { client, sender, chainId, nonce, gas, data, account } = prep;
 
-        let fees = await this.buildInitialFees(web3);
-
+        let fees = await this.buildInitialFees(client);
         const maxAttempts = 4;
         let lastErr: any;
 
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-            const tx: any = {
-                from: sender,
-                to: multiSendContract,
-                data,
-                gas,
-                nonce,
-                chainId,
-            };
-
-            if (fees.type2) {
-                tx.type = 2;
-                tx.maxFeePerGas = '0x' + (fees.maxFeePerGas as bigint).toString(16);
-                tx.maxPriorityFeePerGas = '0x' + (fees.maxPriorityFeePerGas as bigint).toString(16);
-            } else {
-                tx.gasPrice = '0x' + (fees.gasPrice as bigint).toString(16);
-            }
-
-            const signed = await web3.eth.accounts.signTransaction(tx, this.privateKey);
-            const rawTx = signed.rawTransaction!;
-            const rawHash = Web3.utils.keccak256(rawTx);
+            const tx = this.createTransactionObject(sender, multiSendContract, data, gas, nonce, chainId, fees);
+            const rawTx = await account.signTransaction(tx);
+            const rawHash = keccak256(rawTx);
             logger.info(network, `✍️ Attempt ${attempt}/${maxAttempts} — rawHash ${rawHash}`);
 
             try {
                 const res = await this.fanoutSend(rawTx);
-
-                const okMsg = notifierMessage.formatSuccessMultiSend(this.payway, currency, res.receipt);
-                logger.info(network, `✅ Success via [${res.via}] — txHash = ${res.txHash}`);
-                logger.info(network, okMsg);
-                await modules.sendMessageToTelegram(okMsg);
-
+                await this.logSuccessfulTransaction(res, currency);
                 return res.txHash;
             } catch (err: any) {
                 lastErr = err;
-                const m = (err?.message || '').toLowerCase();
 
-                if (m.includes('minimum needed') || m.includes('gas price below minimum') || m.includes('tip cap')) {
-                    try {
-                        const match = (err.message || '').match(/minimum needed\s+(\d+)/i);
-                        const needed = match ? BigInt(match[1]) : TIP_FLOOR_POLYGON;
-
-                        if (fees.type2) {
-                            if ((fees.maxPriorityFeePerGas as bigint) < needed) {
-                                const pending = (await web3.eth.getBlock('pending')) as any;
-                                const base = pending?.baseFeePerGas != null ? BigInt(pending.baseFeePerGas) : 0n;
-
-                                let nextMaxFee = base > 0n ? base * 2n + needed : (fees.maxFeePerGas as bigint);
-                                if (nextMaxFee < base + needed) nextMaxFee = base + needed;
-
-                                const nextTip = needed > MAX_TIP_CAP ? MAX_TIP_CAP : needed;
-
-                                fees.maxPriorityFeePerGas = nextTip;
-                                fees.maxFeePerGas = nextMaxFee > MAX_FEE_CAP ? MAX_FEE_CAP : nextMaxFee;
-                            } else {
-                                this.bumpFees(fees);
-                            }
-                        } else {
-                            this.bumpFees(fees);
-                        }
-
-                        logger.warn(network, `⚠️ RPC requires higher tip; raising to ≥ ${needed} wei and retrying`);
-                        continue;
-                    } catch {}
+                // Handle minimum tip requirements
+                if (await this.handleMinimumTipError(err, fees, client)) {
+                    continue;
                 }
 
-                const needBump =
-                    m.includes('replacement transaction underpriced') ||
-                    m.includes('fee too low') ||
-                    m.includes('nonce too low') ||
-                    m.includes('already known');
-
-                const isNetworkish = this.isNetworkError(err);
-
-                if (needBump && attempt < maxAttempts) {
+                // Handle replacement transaction errors
+                if (this.shouldBumpFees(err?.message || '') && attempt < maxAttempts) {
                     this.bumpFees(fees);
                     logger.warn(network, `⚠️ Replacement bump & retry (${attempt + 1}/${maxAttempts})`);
                     continue;
                 }
 
-                const errorMsg = notifierMessage.formatErrorMultiSend(
-                    this.payway,
-                    currency,
-                    err?.message || err?.toString?.() || String(err),
-                );
-                await modules.sendMessageToTelegram(errorMsg);
+                // Handle network vs non-network errors
+                if (!isEvmNetworkError(err)) {
+                    await this.logTransactionError(err, currency);
+                    throw new Error(
+                        `Transaction failed for payway = ${this.payway} (multi-send): ${err?.message || err}`,
+                    );
+                }
 
-                throw new Error(
-                    `All RPC providers failed for payway = ${this.payway} (multi-send): ${err?.message || err}`,
-                );
+                // Final attempt failed
+                if (attempt === maxAttempts) {
+                    await this.logTransactionError(err, currency);
+                    throw new Error(
+                        `All attempts failed for payway = ${this.payway} (multi-send): ${err?.message || err}`,
+                    );
+                }
             }
         }
 
         throw new Error(
-            `All RPC providers failed for payway = ${this.payway} (multi-send): ${lastErr?.message || lastErr}`,
+            `All attempts failed for payway = ${this.payway} (multi-send): ${lastErr?.message || lastErr}`,
         );
     }
 }

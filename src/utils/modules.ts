@@ -9,6 +9,10 @@ config();
 /* Interface */
 import { RpcResponse } from '../interfaces/ltc.payout.interface';
 
+/* Internal dependencies */
+import { logger } from './logger';
+import { notifierMessage } from './message-formatter';
+
 /* Constants */
 import { Const } from '../constants/const';
 
@@ -141,10 +145,74 @@ function getEvmRpcUrlsForPayway(payway: string): string[] {
     throw new Error(`Unknown EVM payway: ${payway}`);
 }
 
+/**
+ * Unified EVM transaction logger for both single and multi-send transactions
+ */
+class EVMTransactionLogger {
+    /**
+     * Log successful EVM transaction
+     */
+    static async logSuccess(
+        payway: string,
+        currency: string,
+        transactionHash: string,
+        receipt: any,
+        providerUrl: string,
+        senderAddress?: string,
+        duration?: number,
+        isMultiSend: boolean = false
+    ): Promise<void> {
+        const network = payway.toUpperCase();
+
+        // Choose appropriate message formatter
+        const successMsg = isMultiSend
+            ? notifierMessage.formatSuccessMultiSend(payway, currency, receipt)
+            : notifierMessage.formatSuccessEVMTransaction(payway, currency, {
+                transactionHash,
+                from: senderAddress || receipt.from
+            });
+
+        // Log with duration if provided
+        const durationInfo = duration ? ` in ${duration}ms` : '';
+        logger.info(network, `✅  Success via [${providerUrl}]${durationInfo} — txHash = ${transactionHash}`);
+        logger.info(network, `${successMsg}`);
+
+        await modules.sendMessageToTelegram(successMsg);
+    }
+
+    /**
+     * Log EVM transaction error
+     */
+    static async logError(
+        payway: string,
+        currency: string,
+        error: any,
+        providerUrl: string,
+        duration?: number,
+        isMultiSend: boolean = false
+    ): Promise<void> {
+        const network = payway.toUpperCase();
+        const errorMessage = error?.message || error?.toString?.() || String(error);
+
+        // Choose appropriate error formatter
+        const errorMsg = isMultiSend
+            ? notifierMessage.formatErrorMultiSend(payway, currency, errorMessage)
+            : notifierMessage.formatErrorEVM(payway, currency, error);
+
+        await modules.sendMessageToTelegram(errorMsg);
+
+        const durationInfo = duration ? ` in ${duration}ms` : '';
+        logger.error(network, `❌  [${providerUrl}] failed${durationInfo} — ${errorMessage}`);
+    }
+}
 
 export const modules = {
     getRpcUrl,
     fetchDecimals,
     sendMessageToTelegram,
-    getEvmRpcUrlsForPayway
+    getEvmRpcUrlsForPayway,
+    EVMTransactionLogger
 };
+
+// Export utility functions directly for use in services
+export { getEvmRpcUrlsForPayway, EVMTransactionLogger };
