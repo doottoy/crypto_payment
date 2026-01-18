@@ -1,6 +1,6 @@
 {
   "name": "crypto_payment",
-  "version": "1.0.1",
+  "version": "1.2.0",
   "description": "Service for processing crypto transactions with multi-send functionality.",
   "main": "dist/index.js",
   "scripts": {

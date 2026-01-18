@@ -18,23 +18,30 @@ export class LtcPayoutService {
      */
     async ltcSendTransaction(request: LtcBaseRequestBody) {
         const network = request.payway.toUpperCase();
+        const reqInfo = request.request_id ? `[${request.request_id}]` : '';
         try {
-            logger.info(network, `✍️ Sending ${request.amount} ${request.currency} -> ${request.payee_address}`);
+            logger.info(network, `🔄${reqInfo}[SEND][AMOUNT:${request.amount}][CUR:${request.currency}][TO:${request.payee_address}]`);
 
             // Make the RPC request
             const response = await makeRpcRequest<{ result: string }>(request.method, [request.payee_address, request.amount]);
 
             // Log and notify about the successful transaction
-            const successMsg = notifierMessage.formatSuccessLTCTransaction(request.payway, request.currency, response);
-            logger.info(network, successMsg);
+            const successMsg = notifierMessage.formatSuccessLTCTransaction(
+                request.payway,
+                request.currency,
+                response,
+                request.request_id
+            );
+            logger.info(network, `✅${reqInfo}[CONFIRMED][HASH:${response.result}]`);
             await modules.sendMessageToTelegram(successMsg);
 
             // Return the transaction hash
             return response.result;
         } catch (error) {
             // Log and notify about the error in the transaction
-            const errorMsg = notifierMessage.formatErrorLTC(request.payway, request.currency, error);
-            logger.error(network, errorMsg);
+            const errorMsg = notifierMessage.formatErrorLTC(request.payway, request.currency, error, request.request_id);
+            const errMsg = error instanceof Error ? error.message : String(error);
+            logger.error(network, `❌${reqInfo}[ERROR][MSG:${errMsg}]`);
             await modules.sendMessageToTelegram(errorMsg);
             // Rethrow error for further handling
             throw error;

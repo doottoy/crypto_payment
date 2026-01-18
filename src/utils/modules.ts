@@ -23,18 +23,22 @@ import { Const } from '../constants/const';
  * @returns A Promise that resolves when the message has been sent.
  */
 async function sendMessageToTelegram(message: string): Promise<void> {
-    // Construct the URL for the Telegram Bot API
-    const url = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`;
+    try {
+        // Construct the URL for the Telegram Bot API
+        const url = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`;
 
-    // Configure the request options
-    const options = {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: process.env.TELEGRAM_CHAT_ID, text: message })
-    };
+        // Configure the request options
+        const options = {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: process.env.TELEGRAM_CHAT_ID, text: message })
+        };
 
-    // Send the POST request to the Telegram API
-    return (await fetch(url, options)).json();
+        // Send the POST request to the Telegram API
+        await fetch(url, options);
+    } catch (error) {
+        logger.warn('TELEGRAM', `Failed to send notification: ${error instanceof Error ? error.message : String(error)}`);
+    }
 }
 
 /**
@@ -160,22 +164,24 @@ class EVMTransactionLogger {
         providerUrl: string,
         senderAddress?: string,
         duration?: number,
-        isMultiSend: boolean = false
+        isMultiSend: boolean = false,
+        requestId?: string
     ): Promise<void> {
         const network = payway.toUpperCase();
 
         // Choose appropriate message formatter
         const successMsg = isMultiSend
-            ? notifierMessage.formatSuccessMultiSend(payway, currency, receipt)
+            ? notifierMessage.formatSuccessMultiSend(payway, currency, receipt, requestId)
             : notifierMessage.formatSuccessEVMTransaction(payway, currency, {
                 transactionHash,
                 from: senderAddress || receipt.from
-            });
+            }, requestId);
 
         // Log with duration if provided
-        const durationInfo = duration ? ` in ${duration}ms` : '';
-        logger.info(network, `✅  Success via [${providerUrl}]${durationInfo} — txHash = ${transactionHash}`);
-        logger.info(network, `${successMsg}`);
+        const durationInfo = duration ? `[MS:${duration}]` : '';
+        const typeInfo = isMultiSend ? '[TYPE:multi]' : '[TYPE:single]';
+        const reqInfo = requestId ? `[${requestId}]` : '';
+        logger.info(network, `✅${reqInfo}[CONFIRMED][${providerUrl}]${durationInfo}${typeInfo}[HASH:${transactionHash}]`);
 
         await modules.sendMessageToTelegram(successMsg);
     }
@@ -189,20 +195,23 @@ class EVMTransactionLogger {
         error: any,
         providerUrl: string,
         duration?: number,
-        isMultiSend: boolean = false
+        isMultiSend: boolean = false,
+        requestId?: string
     ): Promise<void> {
         const network = payway.toUpperCase();
         const errorMessage = error?.message || error?.toString?.() || String(error);
 
         // Choose appropriate error formatter
         const errorMsg = isMultiSend
-            ? notifierMessage.formatErrorMultiSend(payway, currency, errorMessage)
-            : notifierMessage.formatErrorEVM(payway, currency, error);
+            ? notifierMessage.formatErrorMultiSend(payway, currency, errorMessage, requestId)
+            : notifierMessage.formatErrorEVM(payway, currency, error, requestId);
 
         await modules.sendMessageToTelegram(errorMsg);
 
-        const durationInfo = duration ? ` in ${duration}ms` : '';
-        logger.error(network, `❌  [${providerUrl}] failed${durationInfo} — ${errorMessage}`);
+        const durationInfo = duration ? `[MS:${duration}]` : '';
+        const typeInfo = isMultiSend ? '[TYPE:multi]' : '[TYPE:single]';
+        const reqInfo = requestId ? `[${requestId}]` : '';
+        logger.error(network, `❌${reqInfo}[ERROR][${providerUrl}]${durationInfo}${typeInfo}[MSG:${errorMessage}]`);
     }
 }
 

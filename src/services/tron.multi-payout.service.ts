@@ -2,6 +2,7 @@
 import { TronWeb } from 'tronweb';
 
 /* Internal dependencies */
+import { logger } from '../utils/logger';
 import { modules } from '../utils/modules';
 import { Recipient } from '../interfaces/payout.interface';
 import { notifierMessage } from '../utils/message-formatter';
@@ -59,35 +60,47 @@ export class TronMultiPayoutService {
      * Send native TRX multi-transfer
      */
     private async sendNativeMultiTransfer(addresses: string[], amounts: string[]): Promise<string> {
-        return await this.contractInstance
+        const res = await this.contractInstance
             .multiTransferTrx(addresses, amounts)
             .send({ feeLimit: Const.TRON_FEE_LIMIT });
+        return this.extractTxId(res);
     }
 
     /**
      * Send TRC20 token multi-transfer
      */
     private async sendTokenMultiTransfer(token: string, addresses: string[], amounts: string[]): Promise<string> {
-        return await this.contractInstance
+        const res = await this.contractInstance
             .multiTransferToken(token, addresses, amounts)
             .send({ feeLimit: Const.TRON_FEE_LIMIT });
+        return this.extractTxId(res);
+    }
+
+    private extractTxId(result: any): string {
+        if (typeof result === 'string') return result;
+        if (result?.txid) return result.txid;
+        if (result?.transaction?.txID) return result.transaction.txID;
+        if (result?.transaction?.txId) return result.transaction.txId;
+        return String(result);
     }
 
     /**
      * Log successful multi-send transaction
      */
-    private async logSuccessfulMultiSend(currency: string, txId: string): Promise<void> {
-        const successMsg = notifierMessage.formatSuccessTronMultiSendTransaction(currency, txId);
-        console.log(successMsg);
+    private async logSuccessfulMultiSend(currency: string, txId: string, requestId?: string): Promise<void> {
+        const successMsg = notifierMessage.formatSuccessTronMultiSendTransaction(currency, txId, requestId);
+        const reqInfo = requestId ? `[${requestId}]` : '';
+        logger.info(this.payway.toUpperCase(), `✅${reqInfo}[MULTISEND_CONFIRMED][HASH:${txId}]`);
         await modules.sendMessageToTelegram(successMsg);
     }
 
     /**
      * Log multi-send transaction error
      */
-    private async logMultiSendError(currency: string, error: any): Promise<void> {
-        const errorMsg = notifierMessage.formatErrorTronMultiSendTransaction(currency, error);
-        console.error(errorMsg);
+    private async logMultiSendError(currency: string, error: any, requestId?: string): Promise<void> {
+        const errorMsg = notifierMessage.formatErrorTronMultiSendTransaction(currency, error, requestId);
+        const reqInfo = requestId ? `[${requestId}]` : '';
+        logger.error(this.payway.toUpperCase(), `❌${reqInfo}[MULTISEND_ERROR][MSG:${error?.message || String(error)}]`);
         await modules.sendMessageToTelegram(errorMsg);
     }
 
@@ -97,17 +110,22 @@ export class TronMultiPayoutService {
      * @param recipients — Array of recipient addresses and amounts to be sent.
      * @param currency — The token contract address being sent.
      */
-    async multiSend(token: string | undefined, recipients: Recipient[], currency: string): Promise<string> {
+    async multiSend(
+        token: string | undefined,
+        recipients: Recipient[],
+        currency: string,
+        requestId?: string
+    ): Promise<string> {
         try {
             const { addresses, amounts } = this.prepareMultiSendData(recipients);
             const txId = token
                 ? await this.sendTokenMultiTransfer(token, addresses, amounts)
                 : await this.sendNativeMultiTransfer(addresses, amounts);
 
-            await this.logSuccessfulMultiSend(currency, txId);
+            await this.logSuccessfulMultiSend(currency, txId, requestId);
             return txId;
         } catch (error) {
-            await this.logMultiSendError(currency, error);
+            await this.logMultiSendError(currency, error, requestId);
             throw error;
         }
     }

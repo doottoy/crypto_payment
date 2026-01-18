@@ -6,6 +6,7 @@ export interface BaseRequestBody {
     payway: string;
     private_key: string;
     currency: string;
+    request_id?: string;
 }
 
 /**

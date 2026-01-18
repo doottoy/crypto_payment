@@ -5,6 +5,7 @@ import { createPublicClient, Address, Hex, encodeFunctionData, http, keccak256, 
 /* Internal dependencies */
 import { logger } from '../utils/logger';
 import { getChainForPayway, isEvmNetworkError } from '../utils/evm';
+import { nonceAllocator, type NonceLease } from '../utils/nonce-allocator';
 import { getEvmRpcUrlsForPayway, EVMTransactionLogger } from '../utils/modules';
 
 /* Constants */
@@ -108,19 +109,17 @@ export class PayoutService {
     }
 
     /**
-     * Get basic transaction data (chainId, nonce, gasPrice) from client
+     * Get basic transaction data (chainId, gasPrice) from client
      */
     private async getBasicTxData(client: PublicClient, account: PrivateKeyAccount): Promise<{
         chainId: number;
-        nonce: number;
         gasPrice: bigint;
     }> {
-        const [chainId, nonce, gasPrice] = await Promise.all([
+        const [chainId, gasPrice] = await Promise.all([
             client.getChainId(),
-            client.getTransactionCount({ address: account.address }),
             this.getDynamicGasPrice(client)
         ]);
-        return { chainId, nonce, gasPrice };
+        return { chainId, gasPrice };
     }
 
     /**
@@ -178,7 +177,7 @@ export class PayoutService {
         amount: string,
         contract: string,
         currency: string
-    ): Promise<{ rawTx: Hex; sender: Hex }> {
+    ): Promise<{ rawTx: Hex; sender: Hex; nonceLease: NonceLease; chainId: number }> {
         let lastErr;
         const chain = getChainForPayway(this.payway);
         const account = privateKeyToAccount(
@@ -191,11 +190,10 @@ export class PayoutService {
             const client = createPublicClient({ chain, transport });
 
             try {
-                const { chainId, nonce, gasPrice } = await this.getBasicTxData(client, account);
+                const { chainId, gasPrice } = await this.getBasicTxData(client, account);
 
                 let tx: any = {
                     chainId,
-                    nonce,
                     gasPrice
                 };
 
@@ -209,15 +207,23 @@ export class PayoutService {
                 const isTokenTransfer = Boolean(contract);
                 await this.estimateAndSetGas(client, tx, account.address, isTokenTransfer);
 
-                const rawTx = await account.signTransaction(tx);
-                return { rawTx, sender: account.address };
+                const nonceLease = await nonceAllocator.reserveNonce(client, account.address, chainId);
+                try {
+                    tx.nonce = nonceLease.nonce;
+
+                    const rawTx = await account.signTransaction(tx);
+                    return { rawTx, sender: account.address, nonceLease, chainId };
+                } catch (err) {
+                    await nonceLease.release(false);
+                    throw err;
+                }
             } catch (err: any) {
                 lastErr = err;
-                logger.error('TX_PREP', `❌  Failed to prepare tx: ${err?.message || err?.toString?.() || String(err)}`);
+                logger.error('TX_PREP', `❌[PREPARE_FAILED][MSG:${err?.message || err?.toString?.() || String(err)}]`);
                 if (!isEvmNetworkError(err)) {
                     throw err;
                 }
-                logger.warn('TX_PREP', `⚠️ Retrying tx preparation with next provider`);
+                logger.warn('TX_PREP', '🔄[PREPARE_RETRY][NEXT_PROVIDER]');
             }
         }
         throw new Error(`All RPC providers failed during tx preparation: ${lastErr?.message || lastErr?.toString?.() || String(lastErr)}`
@@ -227,10 +233,11 @@ export class PayoutService {
     /**
      * Log transaction preparation info
      */
-    private logTransactionPreparation(rawTx: Hex): void {
+    private logTransactionPreparation(rawTx: Hex, requestId?: string): void {
         const network = this.payway.toUpperCase();
-        logger.info(network, `✍️ Transaction RawTx ${rawTx}`);
-        logger.info(network, `📝 Transaction hash: ${keccak256(rawTx)}`);
+        const reqInfo = requestId ? `[${requestId}]` : '';
+        logger.info(network, `🧾${reqInfo}[PREPARED][RAW:${rawTx}]`);
+        logger.info(network, `🧾${reqInfo}[PREPARED][HASH:${keccak256(rawTx)}]`);
     }
 
     /**
@@ -239,11 +246,15 @@ export class PayoutService {
     private async sendViaProvider(
         client: PublicClient,
         rawTx: Hex,
-        url: string
-    ): Promise<{ hash: string; receipt: any }> {
+        url: string,
+        waitForReceipt: boolean
+    ): Promise<{ hash: Hex; receipt?: any }> {
         const hash = await client.sendRawTransaction({ serializedTransaction: rawTx });
-        const receipt = await client.waitForTransactionReceipt({ hash });
-        return { hash: receipt.transactionHash, receipt };
+        if (waitForReceipt) {
+            const receipt = await client.waitForTransactionReceipt({ hash });
+            return { hash: receipt.transactionHash, receipt };
+        }
+        return { hash };
     }
 
     /**
@@ -254,7 +265,8 @@ export class PayoutService {
         sender: Hex,
         url: string,
         currency: string,
-        duration: number
+        duration: number,
+        requestId?: string
     ): Promise<void> {
         await EVMTransactionLogger.logSuccess(
             this.payway,
@@ -264,7 +276,8 @@ export class PayoutService {
             url,
             sender,
             duration,
-            false
+            false,
+            requestId
         );
     }
 
@@ -275,7 +288,8 @@ export class PayoutService {
         error: any,
         url: string,
         currency: string,
-        duration: number
+        duration: number,
+        requestId?: string
     ): Promise<void> {
         await EVMTransactionLogger.logError(
             this.payway,
@@ -283,8 +297,47 @@ export class PayoutService {
             error,
             url,
             duration,
-            false
+            false,
+            requestId
         );
+    }
+
+    private logTransactionSubmitted(hash: string, url: string, requestId?: string): void {
+        const network = this.payway.toUpperCase();
+        const reqInfo = requestId ? `[${requestId}]` : '';
+        logger.info(network, `📨${reqInfo}[SUBMITTED][${url}][HASH:${hash}]`);
+    }
+
+    private waitForReceiptInBackground(
+        client: PublicClient,
+        hash: Hex,
+        sender: Hex,
+        url: string,
+        currency: string,
+        start: number,
+        chainId: number,
+        requestId?: string
+    ): void {
+        void (async () => {
+            try {
+                const receipt = await client.waitForTransactionReceipt({ hash });
+                const duration = Date.now() - start;
+                await this.logSuccessfulTransaction(
+                    { hash: receipt.transactionHash, receipt },
+                    sender,
+                    url,
+                    currency,
+                    duration,
+                    requestId
+                );
+            } catch (error) {
+                const duration = Date.now() - start;
+                await this.logTransactionError(error, url, currency, duration, requestId);
+                const reqInfo = requestId ? `[${requestId}]` : '';
+                logger.warn(this.payway.toUpperCase(), `⚠️${reqInfo}[RECEIPT_WAIT_FAILED][ACTION:nonce_resync]`);
+                await nonceAllocator.markResync(sender, chainId);
+            }
+        })();
     }
 
     /**
@@ -295,44 +348,65 @@ export class PayoutService {
         payeeAddress: string,
         amount: string,
         contract: string,
-        currency: string
+        currency: string,
+        waitForReceipt: boolean = true,
+        requestId?: string
     ): Promise<string> {
         let lastErr: any;
         const network = this.payway.toUpperCase();
-        const { rawTx, sender } = await this.prepareTxData(payeeAddress, amount, contract, currency);
+        const { rawTx, sender, nonceLease, chainId } = await this.prepareTxData(payeeAddress, amount, contract, currency);
 
-        this.logTransactionPreparation(rawTx);
+        this.logTransactionPreparation(rawTx, requestId);
 
-        for (let i = 0; i < this.rpcUrls.length; i += 1) {
-            const url = this.rpcUrls[i];
-            const client = createPublicClient({
-                transport: http(url, { timeout: 10000 })
-            });
+        let success = false;
+        try {
+            for (let i = 0; i < this.rpcUrls.length; i += 1) {
+                const url = this.rpcUrls[i];
+                const client = createPublicClient({
+                    transport: http(url, { timeout: 10000 })
+                });
 
-            logger.info(network, `🔄 Trying provider [${url}]`);
-            const start = Date.now();
+                const reqInfo = requestId ? `[${requestId}]` : '';
+                logger.info(network, `🔄${reqInfo}[TRY][${url}]`);
+                const start = Date.now();
 
-            try {
-                const result = await this.sendViaProvider(client, rawTx, url);
-                const duration = Date.now() - start;
-                await this.logSuccessfulTransaction(result, sender, url, currency, duration);
+                try {
+                    const result = await this.sendViaProvider(client, rawTx, url, waitForReceipt);
+                    const duration = Date.now() - start;
+                    if (waitForReceipt) {
+                        await this.logSuccessfulTransaction(
+                            { hash: result.hash, receipt: result.receipt as any },
+                            sender,
+                            url,
+                            currency,
+                            duration,
+                            requestId
+                        );
+                    } else {
+                        this.logTransactionSubmitted(result.hash, url, requestId);
+                        this.waitForReceiptInBackground(client, result.hash, sender, url, currency, start, chainId, requestId);
+                    }
 
-                return result.hash;
-            } catch (err: any) {
-                const duration = Date.now() - start;
-                lastErr = err;
+                    success = true;
+                    return result.hash;
+                } catch (err: any) {
+                    const duration = Date.now() - start;
+                    lastErr = err;
 
-                await this.logTransactionError(err, url, currency, duration);
+                    await this.logTransactionError(err, url, currency, duration, requestId);
 
-                if (!isEvmNetworkError(err)) {
-                    throw err;
+                    if (!isEvmNetworkError(err)) {
+                        throw err;
+                    }
+
+                    logger.warn(network, `🔄${reqInfo}[RETRY][NEXT_PROVIDER][RAW:${keccak256(rawTx)}]`);
                 }
-
-                logger.warn(network, `⚠️ Retrying with next provider — re-sending the same rawTx (hash: ${keccak256(rawTx)})`);
             }
-        }
 
-        throw new Error(`All RPC providers failed for payway = ${this.payway}: ${lastErr?.message || lastErr?.toString?.() || String(lastErr)}`
-        );
+            throw new Error(`All RPC providers failed for payway = ${this.payway}: ${lastErr?.message || lastErr?.toString?.() || String(lastErr)}`
+            );
+        } finally {
+            await nonceLease.release(success);
+        }
     }
 }

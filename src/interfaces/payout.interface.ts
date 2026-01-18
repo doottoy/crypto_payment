@@ -6,6 +6,8 @@ export interface BaseRequestBody {
     payway: string;
     private_key: string;
     currency: string;
+    wait_for_receipt?: boolean;
+    request_id?: string;
 }
 
 /**
@@ -39,4 +41,3 @@ export interface MultiPayoutRequestBody {
         token_contract?: string;
     };
 }
-

@@ -154,7 +154,7 @@ export class MultiPayoutService {
             }
 
             const neededGwei = Number(needed) / Number(GWEI);
-            logger.warn(this.payway.toUpperCase(), `⚠️ RPC requires higher tip; raising to ≥ ${neededGwei} Gwei`);
+            logger.warn(this.payway.toUpperCase(), `⚠️[FEE_TIP_BUMP][NEEDED_GWEI:${neededGwei}]`);
             return true;
         } catch {
             return false;
@@ -166,7 +166,8 @@ export class MultiPayoutService {
      */
     private async logSuccessfulTransaction(
         result: { txHash: string; receipt: any; via: string },
-        currency: string
+        currency: string,
+        requestId?: string
     ): Promise<void> {
         await EVMTransactionLogger.logSuccess(
             this.payway,
@@ -176,7 +177,8 @@ export class MultiPayoutService {
             result.via,
             undefined,
             undefined,
-            true
+            true,
+            requestId
         );
     }
 
@@ -185,7 +187,8 @@ export class MultiPayoutService {
      */
     private async logTransactionError(
         error: any,
-        currency: string
+        currency: string,
+        requestId?: string
     ): Promise<void> {
         await EVMTransactionLogger.logError(
             this.payway,
@@ -193,7 +196,8 @@ export class MultiPayoutService {
             error,
             '',
             undefined,
-            true
+            true,
+            requestId
         );
     }
 
@@ -209,11 +213,11 @@ export class MultiPayoutService {
             });
             const decNum = Number(decVal);
             if (Number.isFinite(decNum)) {
-                logger.info(this.payway.toUpperCase(), `[DECIMALS] from multisend = ${decNum}`);
+                logger.info(this.payway.toUpperCase(), `🧾[DECIMALS][SOURCE:multisend][VALUE:${decNum}]`);
                 return decNum;
             }
         } catch {
-            logger.warn(this.payway.toUpperCase(), `[DECIMALS] multisend.decimals() failed, fallback = 18`);
+            logger.warn(this.payway.toUpperCase(), '⚠️[DECIMALS][SOURCE:multisend][FALLBACK:18]');
         }
         return 18;
     }
@@ -291,9 +295,9 @@ export class MultiPayoutService {
                 return { client, sender, chainId, nonce, gas, data, account };
             } catch (err: any) {
                 lastErr = err;
-                logger.error('MULTI_PREP', `❌  [${url}] prepare failed: ${err?.message || err}`);
+                logger.error('MULTI_PREP', `❌[PREPARE_FAILED][${url}][MSG:${err?.message || err}]`);
                 if (!isEvmNetworkError(err)) throw err;
-                logger.warn('MULTI_PREP', '⚠️ Trying next provider...');
+                logger.warn('MULTI_PREP', '🔄[PREPARE_RETRY][NEXT_PROVIDER]');
             }
         }
 
@@ -303,7 +307,10 @@ export class MultiPayoutService {
     /**
      * Send rawTx with failover, stop at first success
      */
-    private async fanoutSend(rawTx: Hex): Promise<{ txHash: string; receipt: any; via: string }> {
+    private async fanoutSend(
+        rawTx: Hex,
+        waitForReceipt: boolean
+    ): Promise<{ txHash: Hex; receipt?: any; via: string }> {
         let lastErr: any;
         const chain = getChainForPayway(this.payway);
         for (const url of this.rpcUrls) {
@@ -313,12 +320,15 @@ export class MultiPayoutService {
             });
             try {
                 const hash = await client.sendRawTransaction({ serializedTransaction: rawTx });
-                const receipt = await client.waitForTransactionReceipt({ hash });
-                return { txHash: receipt.transactionHash, receipt, via: url };
+                if (waitForReceipt) {
+                    const receipt = await client.waitForTransactionReceipt({ hash });
+                    return { txHash: receipt.transactionHash, receipt, via: url };
+                }
+                return { txHash: hash, via: url };
             } catch (err: any) {
                 lastErr = err;
                 const msg = err?.message || err?.toString?.() || String(err);
-                logger.error('MULTI_SEND', `❌  [${url}] ${msg}`);
+                logger.error('MULTI_SEND', `❌[SEND_FAIL][${url}][MSG:${msg}]`);
                 if (!isEvmNetworkError(err)) throw err;
             }
         }
@@ -362,7 +372,44 @@ export class MultiPayoutService {
      * - Up to 4 attempts with bump & re-sign on replacement errors
      * - Fan-out per attempt until one RPC accepts
      */
-    async multiSend(recipients: Recipient[], multiSendContract: string, currency: string): Promise<string> {
+    private logTransactionSubmitted(hash: string, url: string, requestId?: string): void {
+        const network = this.payway.toUpperCase();
+        const reqInfo = requestId ? `[${requestId}]` : '';
+        logger.info(network, `📨${reqInfo}[SUBMITTED][${url}][HASH:${hash}]`);
+    }
+
+    private waitForReceiptInBackground(
+        hash: Hex,
+        via: string,
+        currency: string,
+        requestId?: string
+    ): void {
+        const chain = getChainForPayway(this.payway);
+        const client = createPublicClient({
+            chain,
+            transport: http(via, { timeout: 10000 })
+        });
+        void (async () => {
+            try {
+                const receipt = await client.waitForTransactionReceipt({ hash });
+                await this.logSuccessfulTransaction(
+                    { txHash: receipt.transactionHash, receipt, via },
+                    currency,
+                    requestId
+                );
+            } catch (error) {
+                await this.logTransactionError(error, currency, requestId);
+            }
+        })();
+    }
+
+    async multiSend(
+        recipients: Recipient[],
+        multiSendContract: string,
+        currency: string,
+        waitForReceipt: boolean = true,
+        requestId?: string
+    ): Promise<string> {
         const network = this.payway.toUpperCase();
         const prep = await this.prepareCommon(recipients, multiSendContract);
         const { client, sender, chainId, nonce, gas, data, account } = prep;
@@ -375,11 +422,21 @@ export class MultiPayoutService {
             const tx = this.createTransactionObject(sender, multiSendContract, data, gas, nonce, chainId, fees);
             const rawTx = await account.signTransaction(tx);
             const rawHash = keccak256(rawTx);
-            logger.info(network, `✍️ Attempt ${attempt}/${maxAttempts} — rawHash ${rawHash}`);
+            const reqInfo = requestId ? `[${requestId}]` : '';
+            logger.info(network, `🔄${reqInfo}[ATTEMPT ${attempt}/${maxAttempts}][RAW:${rawHash}]`);
 
             try {
-                const res = await this.fanoutSend(rawTx);
-                await this.logSuccessfulTransaction(res, currency);
+                const res = await this.fanoutSend(rawTx, waitForReceipt);
+                if (waitForReceipt) {
+                    await this.logSuccessfulTransaction(
+                        { txHash: res.txHash, receipt: res.receipt as any, via: res.via },
+                        currency,
+                        requestId
+                    );
+                } else {
+                    this.logTransactionSubmitted(res.txHash, res.via, requestId);
+                    this.waitForReceiptInBackground(res.txHash, res.via, currency, requestId);
+                }
                 return res.txHash;
             } catch (err: any) {
                 lastErr = err;
@@ -392,13 +449,13 @@ export class MultiPayoutService {
                 // Handle replacement transaction errors
                 if (this.shouldBumpFees(err?.message || '') && attempt < maxAttempts) {
                     this.bumpFees(fees);
-                    logger.warn(network, `⚠️ Replacement bump & retry (${attempt + 1}/${maxAttempts})`);
+                    logger.warn(network, `🔄${reqInfo}[REPLACE_RETRY ${attempt + 1}/${maxAttempts}]`);
                     continue;
                 }
 
                 // Handle network vs non-network errors
                 if (!isEvmNetworkError(err)) {
-                    await this.logTransactionError(err, currency);
+                    await this.logTransactionError(err, currency, requestId);
                     throw new Error(
                         `Transaction failed for payway = ${this.payway} (multi-send): ${err?.message || err}`,
                     );
@@ -406,7 +463,7 @@ export class MultiPayoutService {
 
                 // Final attempt failed
                 if (attempt === maxAttempts) {
-                    await this.logTransactionError(err, currency);
+                    await this.logTransactionError(err, currency, requestId);
                     throw new Error(
                         `All attempts failed for payway = ${this.payway} (multi-send): ${err?.message || err}`,
                     );

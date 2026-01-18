@@ -2,6 +2,7 @@
 import { TronWeb } from 'tronweb';
 
 /* Internal dependencies */
+import { logger } from '../utils/logger';
 import { modules } from '../utils/modules';
 import { notifierMessage } from '../utils/message-formatter';
 
@@ -69,7 +70,8 @@ export class TronPayoutService {
      */
     private async sendNativeTransaction(payeeAddress: string, amount: string): Promise<string> {
         const sunAmount = this.convertToBaseUnit(amount, 6);
-        return await this.tronWeb.trx.sendTransaction(payeeAddress, sunAmount);
+        const res = await this.tronWeb.trx.sendTransaction(payeeAddress, sunAmount);
+        return this.extractTxId(res);
     }
 
     /**
@@ -84,7 +86,16 @@ export class TronPayoutService {
         const baseAmount = this.convertToBaseUnit(amount, decimals);
         const tokenContract = await this.tronWeb.contract().at(contract);
 
-        return await tokenContract.transfer(payeeAddress, baseAmount).send({ feeLimit: Const.TRON_FEE_LIMIT });
+        const res = await tokenContract.transfer(payeeAddress, baseAmount).send({ feeLimit: Const.TRON_FEE_LIMIT });
+        return this.extractTxId(res);
+    }
+
+    private extractTxId(result: any): string {
+        if (typeof result === 'string') return result;
+        if (result?.txid) return result.txid;
+        if (result?.transaction?.txID) return result.transaction.txID;
+        if (result?.transaction?.txId) return result.transaction.txId;
+        return String(result);
     }
 
     /**
@@ -94,19 +105,22 @@ export class TronPayoutService {
         amount: string,
         payeeAddress: string,
         currency: string,
-        txId: string
+        txId: string,
+        requestId?: string
     ): Promise<void> {
-        const successMsg = notifierMessage.formatSuccessTronTransaction(amount, payeeAddress, currency, txId);
-        console.log(successMsg);
+        const successMsg = notifierMessage.formatSuccessTronTransaction(amount, payeeAddress, currency, txId, requestId);
+        const reqInfo = requestId ? `[${requestId}]` : '';
+        logger.info(this.payway.toUpperCase(), `✅${reqInfo}[CONFIRMED][HASH:${txId}]`);
         await modules.sendMessageToTelegram(successMsg);
     }
 
     /**
      * Log transaction error
      */
-    private async logTransactionError(currency: string, error: any): Promise<void> {
-        const errorMsg = notifierMessage.formatErrorTron(currency, error);
-        console.error(errorMsg);
+    private async logTransactionError(currency: string, error: any, requestId?: string): Promise<void> {
+        const errorMsg = notifierMessage.formatErrorTron(currency, error, requestId);
+        const reqInfo = requestId ? `[${requestId}]` : '';
+        logger.error(this.payway.toUpperCase(), `❌${reqInfo}[ERROR][MSG:${error?.message || String(error)}]`);
         await modules.sendMessageToTelegram(errorMsg);
     }
 
@@ -118,16 +132,22 @@ export class TronPayoutService {
      * @param currency - The currency being used (e.g., TRX, USDT).
      * @returns The transaction hash of the successful transaction.
      */
-    async sendTransaction(payee_address: string, amount: string, contract: string, currency: string): Promise<string> {
+    async sendTransaction(
+        payee_address: string,
+        amount: string,
+        contract: string,
+        currency: string,
+        requestId?: string
+    ): Promise<string> {
         try {
             const txId = contract
                 ? await this.sendTokenTransaction(payee_address, amount, contract)
                 : await this.sendNativeTransaction(payee_address, amount);
 
-            await this.logSuccessfulTransaction(amount, payee_address, currency, txId);
+            await this.logSuccessfulTransaction(amount, payee_address, currency, txId, requestId);
             return txId;
         } catch (error) {
-            await this.logTransactionError(currency, error);
+            await this.logTransactionError(currency, error, requestId);
             throw error;
         }
     }
