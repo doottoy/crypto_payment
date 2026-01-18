@@ -1,6 +1,10 @@
 /* Constants */
 import { Const } from '../constants/const';
 
+function appendRequestId(message: string, requestId?: string): string {
+    return requestId ? `${message}\n🧾 Request ID: ${requestId}` : message;
+}
+
 /**
  * Formats a success message for a multi-send transaction.
  * @param payway - The payway used for the transaction.
@@ -8,7 +12,7 @@ import { Const } from '../constants/const';
  * @param transaction - The transaction details, including hash and sender address.
  * @returns A formatted success message string.
  */
-function formatSuccessMultiSend(payway: string, currency: string, transaction: any): string {
+function formatSuccessMultiSend(payway: string, currency: string, transaction: any, requestId?: string): string {
     // Determine the appropriate explorer link based on the payway
     const explorerLink = Const.BSC_PAYWAY.includes(payway)
         ? Const.TESTNET_EXPLORER.BSC
@@ -21,13 +25,14 @@ function formatSuccessMultiSend(payway: string, currency: string, transaction: a
                     : Const.TESTNET_EXPLORER.ETH;
 
     // Return a formatted success message
-    return `⚙️ Type: Multi Send transaction
+    const message = `⚙️ Type: Multi Send transaction
 ⏰ Time: [${new Date().toLocaleString()}]
 🌐 Blockchain: ${payway.toUpperCase()}
 💸 Currency: ${currency}
 📜 Transaction hash: ${transaction.transactionHash}
 👤 Address sender: ${transaction.from}
 🔍 View in explorer: ${explorerLink}${transaction.transactionHash}`;
+    return appendRequestId(message, requestId);
 }
 
 /**
@@ -37,14 +42,15 @@ function formatSuccessMultiSend(payway: string, currency: string, transaction: a
  * @param transaction - The transaction details, including hash.
  * @returns A formatted success message string.
  */
-function formatSuccessMultiSendLTC(payway: string, currency: string, transaction: any): string {
+function formatSuccessMultiSendLTC(payway: string, currency: string, transaction: any, requestId?: string): string {
     // Return a formatted success message
-    return `⚙️ Type: Multi LTC Send transaction
+    const message = `⚙️ Type: Multi LTC Send transaction
 ⏰ Time: [${new Date().toLocaleString()}]
 🌐 Blockchain: ${payway.toUpperCase()}
 💸 Currency: ${currency}
 📜 Transaction hash: ${transaction.result}
 🔍 View in explorer: ${Const.TESTNET_EXPLORER.LTC}${transaction.result}`;
+    return appendRequestId(message, requestId);
 }
 
 /**
@@ -54,7 +60,7 @@ function formatSuccessMultiSendLTC(payway: string, currency: string, transaction
  * @param transaction - The transaction details, including hash and sender address.
  * @returns A formatted success message string.
  */
-function formatSuccessEVMTransaction(payway: string, currency: string, transaction: any): string {
+function formatSuccessEVMTransaction(payway: string, currency: string, transaction: any, requestId?: string): string {
     // Determine the appropriate explorer link based on the payway
     const explorerLink = Const.BSC_PAYWAY.includes(payway)
         ? Const.TESTNET_EXPLORER.BSC
@@ -67,13 +73,14 @@ function formatSuccessEVMTransaction(payway: string, currency: string, transacti
                     : Const.TESTNET_EXPLORER.ETH;
 
     // Return a formatted success message
-    return `⚙️ Type: EVM transaction
+    const message = `⚙️ Type: EVM transaction
 ⏰ Time: [${new Date().toLocaleString()}]
 🌐 Blockchain: ${payway.toUpperCase()}
 💸 Currency: ${currency}
 📜 Transaction hash: ${transaction.transactionHash}
 👤 Address sender: ${transaction.from}
 🔍 View in explorer: ${explorerLink}${transaction.transactionHash}`;
+    return appendRequestId(message, requestId);
 }
 
 /**
@@ -83,14 +90,15 @@ function formatSuccessEVMTransaction(payway: string, currency: string, transacti
  * @param transaction - The transaction details, including hash.
  * @returns A formatted success message string.
  */
-function formatSuccessLTCTransaction(payway: string, currency: string, transaction: any): string {
+function formatSuccessLTCTransaction(payway: string, currency: string, transaction: any, requestId?: string): string {
     // Return a formatted success message
-    return `⚙️ Type: LTC transaction
+    const message = `⚙️ Type: LTC transaction
 ⏰ Time: [${new Date().toLocaleString()}]
 🌐 Blockchain: ${payway.toUpperCase()}
 💸 Currency: ${currency}
 📜 Transaction hash: ${transaction.result}
 🔍 View in explorer: ${Const.TESTNET_EXPLORER.LTC}${transaction.result}`;
+    return appendRequestId(message, requestId);
 }
 
 /**
@@ -100,12 +108,13 @@ function formatSuccessLTCTransaction(payway: string, currency: string, transacti
  * @param error - The error message.
  * @returns A formatted error message string.
  */
-function formatErrorEVM(payway: string, currency: string, error: any): string {
+function formatErrorEVM(payway: string, currency: string, error: any, requestId?: string): string {
     // Return a formatted error message
-    return `❌ Type: Error
+    const message = `❌ Type: Error
 🌐 Blockchain: ${payway.toUpperCase()}
 💸 Currency: ${currency}
 ❗ Error: ${JSON.stringify(error)  || 'Unknown error'}`;
+    return appendRequestId(message, requestId);
 }
 
 /**
@@ -115,13 +124,14 @@ function formatErrorEVM(payway: string, currency: string, error: any): string {
  * @param transaction - The transaction details, including hash and error message.
  * @returns A formatted error message string.
  */
-function formatErrorLTC(payway: string, currency: string, transaction: any): string {
+function formatErrorLTC(payway: string, currency: string, transaction: any, requestId?: string): string {
     // Return a formatted error message
-    return `❌ Type: Error
+    const message = `❌ Type: Error
 🌐 Blockchain: ${payway.toUpperCase()}
 💸 Currency: ${currency}
 📜 Transaction hash: ${transaction.result || 'N/A'}
 ❗ Error: ${transaction.error || 'Unknown error'}`;
+    return appendRequestId(message, requestId);
 }
 
 /**
@@ -131,12 +141,13 @@ function formatErrorLTC(payway: string, currency: string, transaction: any): str
  * @param error - The error message.
  * @returns A formatted error message string.
  */
-function formatErrorMultiSend(payway: string, currency: string, error: any): string {
+function formatErrorMultiSend(payway: string, currency: string, error: any, requestId?: string): string {
     // Return a formatted error message
-    return `❌ Type: Error
+    const message = `❌ Type: Error
 🌐 Blockchain: ${payway.toUpperCase()}
 💸 Currency: ${currency}
 ❗ Error: ${JSON.stringify(error) || 'Unknown error'}`;
+    return appendRequestId(message, requestId);
 }
 
 /**
@@ -146,13 +157,14 @@ function formatErrorMultiSend(payway: string, currency: string, error: any): str
  * @param transaction - The transaction details, including hash and error message.
  * @returns A formatted error message string.
  */
-function formatErrorMultiSendLTC(payway: string, currency: string, transaction: any): string {
+function formatErrorMultiSendLTC(payway: string, currency: string, transaction: any, requestId?: string): string {
     // Return a formatted error message
-    return `❌ Type: Error
+    const message = `❌ Type: Error
 🌐 Blockchain: ${payway.toUpperCase()}
 💸 Currency: ${currency}
 📜 Transaction hash: ${transaction.result || 'N/A'}
 ❗ Error: ${transaction.error || 'Unknown error'}`;
+    return appendRequestId(message, requestId);
 }
 
 /**
@@ -163,15 +175,16 @@ function formatErrorMultiSendLTC(payway: string, currency: string, transaction: 
  * @param amount - The amount to transfer
  * @returns A formatted success message string.
  */
-function formatSuccessSolanaTransaction(currency: string, transaction: any, addressSender: string, amount: string): string {
+function formatSuccessSolanaTransaction(currency: string, transaction: any, addressSender: string, amount: string, requestId?: string): string {
     // Return a formatted success message
-    return `⚙️ Type: Solana Transaction
+    const message = `⚙️ Type: Solana Transaction
 ⏰ Time: [${new Date().toLocaleString()}]
 💰 Amount: ${amount}
 💸 Currency: ${currency}
 📜 Transaction hash: ${transaction}
 👤 Address sender: ${addressSender}
 🔍 View in explorer: ${Const.TESTNET_EXPLORER.SOLANA}${transaction}?cluster=devnet`;
+    return appendRequestId(message, requestId);
 }
 
 /**
@@ -181,14 +194,15 @@ function formatSuccessSolanaTransaction(currency: string, transaction: any, addr
  * @param addressSender - Address sender
  * @returns A formatted success message string.
  */
-function formatSuccessSolanaMultiTransaction(currency: string, transaction: any, addressSender: string): string {
+function formatSuccessSolanaMultiTransaction(currency: string, transaction: any, addressSender: string, requestId?: string): string {
     // Return a formatted success message
-    return `⚙️ Type: Solana Multi Transaction
+    const message = `⚙️ Type: Solana Multi Transaction
 ⏰ Time: [${new Date().toLocaleString()}]
 💸 Currency: ${currency}
 📜 Transaction hash: ${transaction}
 👤 Address sender: ${addressSender}
 🔍 View in explorer: ${Const.TESTNET_EXPLORER.SOLANA}${transaction}?cluster=devnet`;
+    return appendRequestId(message, requestId);
 }
 
 /**
@@ -197,11 +211,12 @@ function formatSuccessSolanaMultiTransaction(currency: string, transaction: any,
  * @param error - The transaction details, including hash and error message.
  * @returns A formatted error message string.
  */
-function formatErrorSolana(currency: string, error: any): string {
+function formatErrorSolana(currency: string, error: any, requestId?: string): string {
     // Return a formatted error message
-    return `❌ Type: Solana Error
+    const message = `❌ Type: Solana Error
 💸 Currency: ${currency}
 ❗ Error: ${error|| 'Unknown error'}`;
+    return appendRequestId(message, requestId);
 }
 
 /**
@@ -212,15 +227,16 @@ function formatErrorSolana(currency: string, error: any): string {
  * @param amount - The amount to transfer
  * @returns A formatted success message string.
  */
-function formatSuccessTronTransaction(amount: string, addressSender: string, currency: any, transaction: any): string {
+function formatSuccessTronTransaction(amount: string, addressSender: string, currency: any, transaction: any, requestId?: string): string {
     // Return a formatted success message
-    return `⚙️ Type: Tron transaction
+    const message = `⚙️ Type: Tron transaction
 ⏰ Time: [${new Date().toLocaleString()}]
 💰 Amount: ${amount}
 💸 Currency: ${currency}
 👤 Address sender: ${addressSender}
 📜 Transaction hash: ${transaction}
 🔍 View in explorer: ${Const.TESTNET_EXPLORER.NILE_TRON}${transaction}`;
+    return appendRequestId(message, requestId);
 }
 
 /**
@@ -229,11 +245,12 @@ function formatSuccessTronTransaction(amount: string, addressSender: string, cur
  * @param error - The transaction details, including hash and error message.
  * @returns A formatted error message string.
  */
-function formatErrorTron(currency: string, error: any): string {
+function formatErrorTron(currency: string, error: any, requestId?: string): string {
     // Return a formatted error message
-    return `❌ Type: Tron Error
+    const message = `❌ Type: Tron Error
 💸 Currency: ${currency}
 ❗ Error: ${error|| 'Unknown error'}`;
+    return appendRequestId(message, requestId);
 }
 
 /**
@@ -243,13 +260,14 @@ function formatErrorTron(currency: string, error: any): string {
  * @param addressSender - Address sender
  * @returns A formatted success message string.
  */
-function formatSuccessTronMultiSendTransaction(currency: any, transaction: any): string {
+function formatSuccessTronMultiSendTransaction(currency: any, transaction: any, requestId?: string): string {
     // Return a formatted success message
-    return `⚙️ Type: Tron Multi Send Transaction
+    const message = `⚙️ Type: Tron Multi Send Transaction
 ⏰ Time: [${new Date().toLocaleString()}]
 💸 Currency: ${currency}
 📜 Transaction hash: ${transaction}
 🔍 View in explorer: ${Const.TESTNET_EXPLORER.NILE_TRON}${transaction}`;
+    return appendRequestId(message, requestId);
 }
 
 /**
@@ -258,11 +276,12 @@ function formatSuccessTronMultiSendTransaction(currency: any, transaction: any):
  * @param error - The transaction details, including hash and error message.
  * @returns A formatted error message string.
  */
-function formatErrorTronMultiSendTransaction(currency: string, error: any): string {
+function formatErrorTronMultiSendTransaction(currency: string, error: any, requestId?: string): string {
     // Return a formatted error message
-    return `❌ Type: Tron Multi Send Error
+    const message = `❌ Type: Tron Multi Send Error
 💸 Currency: ${currency}
 ❗ Error: ${error|| 'Unknown error'}`;
+    return appendRequestId(message, requestId);
 }
 
 /**
@@ -271,13 +290,14 @@ function formatErrorTronMultiSendTransaction(currency: string, error: any): stri
  * @param owner - The token account owner
  * @returns A formatted success message string.
  */
-function formatSolanaCreateTokenAccount(account: string, owner: any): string {
+function formatSolanaCreateTokenAccount(account: string, owner: any, requestId?: string): string {
     // Return a formatted success message
-    return `⚙️ Type: Solana Create Token Account
+    const message = `⚙️ Type: Solana Create Token Account
 ⏰ Time: [${new Date().toLocaleString()}]
 ️💂‍ Owner: ${owner}
 🧪 Token Account: ${account}
 🔍 View in explorer: ${Const.TESTNET_EXPLORER.SOLANA_ADDRESS}${account}?cluster=devnet`;
+    return appendRequestId(message, requestId);
 }
 
 export const notifierMessage = {

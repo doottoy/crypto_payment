@@ -75,11 +75,13 @@ All endpoints respond with:
     "amount": "0.1",
     "contract": "0x...",
     "currency": "ETH",
-    "private_key": "..."
+    "private_key": "...",
+    "wait_for_receipt": true
   }
 }
 ```
 Omit `contract` to send native ETH instead of ERC20.
+Set `wait_for_receipt` to `false` to return `tx_id` immediately after submission; the service will wait for the receipt in the background.
 
 ### EVM (multi-send)
 `POST /payout/evm/multi_send`

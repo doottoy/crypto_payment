@@ -9,6 +9,10 @@ config();
 /* Interface */
 import { RpcResponse } from '../interfaces/ltc.payout.interface';
 
+/* Internal dependencies */
+import { logger } from './logger';
+import { notifierMessage } from './message-formatter';
+
 /* Constants */
 import { Const } from '../constants/const';
 
@@ -19,18 +23,22 @@ import { Const } from '../constants/const';
  * @returns A Promise that resolves when the message has been sent.
  */
 async function sendMessageToTelegram(message: string): Promise<void> {
-    // Construct the URL for the Telegram Bot API
-    const url = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`;
+    try {
+        // Construct the URL for the Telegram Bot API
+        const url = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`;
 
-    // Configure the request options
-    const options = {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: process.env.TELEGRAM_CHAT_ID, text: message })
-    };
+        // Configure the request options
+        const options = {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: process.env.TELEGRAM_CHAT_ID, text: message })
+        };
 
-    // Send the POST request to the Telegram API
-    return (await fetch(url, options)).json();
+        // Send the POST request to the Telegram API
+        await fetch(url, options);
+    } catch (error) {
+        logger.warn('TELEGRAM', `Failed to send notification: ${error instanceof Error ? error.message : String(error)}`);
+    }
 }
 
 /**
@@ -141,10 +149,79 @@ function getEvmRpcUrlsForPayway(payway: string): string[] {
     throw new Error(`Unknown EVM payway: ${payway}`);
 }
 
+/**
+ * Unified EVM transaction logger for both single and multi-send transactions
+ */
+class EVMTransactionLogger {
+    /**
+     * Log successful EVM transaction
+     */
+    static async logSuccess(
+        payway: string,
+        currency: string,
+        transactionHash: string,
+        receipt: any,
+        providerUrl: string,
+        senderAddress?: string,
+        duration?: number,
+        isMultiSend: boolean = false,
+        requestId?: string
+    ): Promise<void> {
+        const network = payway.toUpperCase();
+
+        // Choose appropriate message formatter
+        const successMsg = isMultiSend
+            ? notifierMessage.formatSuccessMultiSend(payway, currency, receipt, requestId)
+            : notifierMessage.formatSuccessEVMTransaction(payway, currency, {
+                transactionHash,
+                from: senderAddress || receipt.from
+            }, requestId);
+
+        // Log with duration if provided
+        const durationInfo = duration ? `[MS:${duration}]` : '';
+        const typeInfo = isMultiSend ? '[TYPE:multi]' : '[TYPE:single]';
+        const reqInfo = requestId ? `[${requestId}]` : '';
+        logger.info(network, `✅${reqInfo}[CONFIRMED][${providerUrl}]${durationInfo}${typeInfo}[HASH:${transactionHash}]`);
+
+        await modules.sendMessageToTelegram(successMsg);
+    }
+
+    /**
+     * Log EVM transaction error
+     */
+    static async logError(
+        payway: string,
+        currency: string,
+        error: any,
+        providerUrl: string,
+        duration?: number,
+        isMultiSend: boolean = false,
+        requestId?: string
+    ): Promise<void> {
+        const network = payway.toUpperCase();
+        const errorMessage = error?.message || error?.toString?.() || String(error);
+
+        // Choose appropriate error formatter
+        const errorMsg = isMultiSend
+            ? notifierMessage.formatErrorMultiSend(payway, currency, errorMessage, requestId)
+            : notifierMessage.formatErrorEVM(payway, currency, error, requestId);
+
+        await modules.sendMessageToTelegram(errorMsg);
+
+        const durationInfo = duration ? `[MS:${duration}]` : '';
+        const typeInfo = isMultiSend ? '[TYPE:multi]' : '[TYPE:single]';
+        const reqInfo = requestId ? `[${requestId}]` : '';
+        logger.error(network, `❌${reqInfo}[ERROR][${providerUrl}]${durationInfo}${typeInfo}[MSG:${errorMessage}]`);
+    }
+}
 
 export const modules = {
     getRpcUrl,
     fetchDecimals,
     sendMessageToTelegram,
-    getEvmRpcUrlsForPayway
+    getEvmRpcUrlsForPayway,
+    EVMTransactionLogger
 };
+
+// Export utility functions directly for use in services
+export { getEvmRpcUrlsForPayway, EVMTransactionLogger };

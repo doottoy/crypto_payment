@@ -71,24 +71,26 @@ export class SolanaPayoutService {
         amount: string,
         currency: string,
         tokenMint?: string,
-        isToken2022: boolean = false
+        isToken2022: boolean = false,
+        requestId?: string
     ): Promise<string> {
         const network = this.payway.toUpperCase();
         try {
             // If no tokenMint, treat as native SOL
             if (!tokenMint) {
-                return await this.sendNativeSOL(payeeAddress, amount, currency, network);
+                return await this.sendNativeSOL(payeeAddress, amount, currency, network, requestId);
             } else {
                 // Otherwise, SPL-token
-                return await this.sendSPLToken(payeeAddress, amount, tokenMint, isToken2022, currency, network);
+                return await this.sendSPLToken(payeeAddress, amount, tokenMint, isToken2022, currency, network, requestId);
             }
         } catch (error) {
             // Handle and format the error
             const formattedError = formatSolanaError(error);
-            logger.error(network, `❌ Solana transaction error: ${formattedError}`);
+            const reqInfo = requestId ? `[${requestId}]` : '';
+            logger.error(network, `❌${reqInfo}[ERROR][MSG:${formattedError}]`);
 
             // Notify via Telegram
-            await modules.sendMessageToTelegram(notifierMessage.formatErrorSolana(currency, formattedError));
+            await modules.sendMessageToTelegram(notifierMessage.formatErrorSolana(currency, formattedError, requestId));
             throw new Error(formattedError);
         }
     }
@@ -105,11 +107,13 @@ export class SolanaPayoutService {
         payeeAddress: string,
         amount: string,
         currency: string,
-        network: string
+        network: string,
+        requestId?: string
     ): Promise<string> {
         try {
             const lamports = Math.floor(parseFloat(amount) * 1e9);
-            logger.info(network, `✍️ Sending ${amount} ${currency} (SOL) -> ${payeeAddress}`);
+            const reqInfo = requestId ? `[${requestId}]` : '';
+            logger.info(network, `🔄${reqInfo}[SEND][AMOUNT:${amount}][CUR:${currency}][TO:${payeeAddress}]`);
 
             const tx = new Transaction().add(
                 SystemProgram.transfer({
@@ -121,8 +125,14 @@ export class SolanaPayoutService {
             const signature = await sendAndConfirmTransaction(this.connection, tx, [this.payer]);
 
             // Log and notify about the successful transaction
-            const successMsg = notifierMessage.formatSuccessSolanaTransaction(currency, signature, this.payer.publicKey.toBase58(), amount);
-            logger.info(network, successMsg);
+            const successMsg = notifierMessage.formatSuccessSolanaTransaction(
+                currency,
+                signature,
+                this.payer.publicKey.toBase58(),
+                amount,
+                requestId
+            );
+            logger.info(network, `✅${reqInfo}[CONFIRMED][HASH:${signature}]`);
             await modules.sendMessageToTelegram(successMsg);
 
             return signature;
@@ -147,13 +157,15 @@ export class SolanaPayoutService {
         tokenMint: string,
         isToken2022: boolean,
         currency: string,
-        network: string
+        network: string,
+        requestId?: string
     ): Promise<string> {
         try {
             const mintPubkey = new PublicKey(tokenMint);
             const payeePubkey = new PublicKey(payeeAddress);
             const tokenProgramId = isToken2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
-            logger.info(network, `✍️ Sending ${amount} ${currency} (SPL${isToken2022 ? ' Token-2022' : ''}) -> ${payeeAddress} [mint=${tokenMint}]`);
+            const reqInfo = requestId ? `[${requestId}]` : '';
+            logger.info(network, `🔄${reqInfo}[SEND][AMOUNT:${amount}][CUR:${currency}][TO:${payeeAddress}][MINT:${tokenMint}]`);
 
             // Create/find ATA for sender
             const senderAta = await (getOrCreateAssociatedTokenAccount as any)(
@@ -196,8 +208,14 @@ export class SolanaPayoutService {
             const signature = await sendAndConfirmTransaction(this.connection, tx, [this.payer]);
 
             // Log and notify about the successful transaction
-            const successMsg = notifierMessage.formatSuccessSolanaTransaction(currency, signature, this.payer.publicKey.toBase58(), amount);
-            logger.info(network, successMsg);
+            const successMsg = notifierMessage.formatSuccessSolanaTransaction(
+                currency,
+                signature,
+                this.payer.publicKey.toBase58(),
+                amount,
+                requestId
+            );
+            logger.info(network, `✅${reqInfo}[CONFIRMED][HASH:${signature}]`);
             await modules.sendMessageToTelegram(successMsg);
 
             return signature;
@@ -215,7 +233,8 @@ export class SolanaPayoutService {
      */
     public async createNewTokenAccount(
         tokenMint: string,
-        ownerAddress?: string
+        ownerAddress?: string,
+        requestId?: string
     ): Promise<string> {
         const network = this.payway.toUpperCase();
         try {
@@ -237,8 +256,13 @@ export class SolanaPayoutService {
             );
 
             // Log and notify about the successful transaction
-            const successMsg = notifierMessage.formatSolanaCreateTokenAccount(newTokenAccountPubkey.toBase58(), ownerPubKey);
-            logger.info(network, successMsg);
+            const successMsg = notifierMessage.formatSolanaCreateTokenAccount(
+                newTokenAccountPubkey.toBase58(),
+                ownerPubKey,
+                requestId
+            );
+            const reqInfo = requestId ? `[${requestId}]` : '';
+            logger.info(network, `✅${reqInfo}[TOKEN_ACCOUNT_CREATED][ACCOUNT:${newTokenAccountPubkey.toBase58()}]`);
             await modules.sendMessageToTelegram(successMsg);
 
             // Return token account address

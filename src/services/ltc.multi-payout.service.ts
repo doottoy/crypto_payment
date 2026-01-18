@@ -18,6 +18,7 @@ export class LtcMultiPayoutService {
      */
     async ltcMultiSend(request: LtcSendManyRequestBody) {
         const network = request.payway.toUpperCase();
+        const reqInfo = request.request_id ? `[${request.request_id}]` : '';
         try {
             const amounts: Record<string, number> = {};
 
@@ -60,26 +61,42 @@ export class LtcMultiPayoutService {
                 (request as any).account ? { wallet: (request as any).account } : undefined
             );
 
-            logger.info(network, `✍️ Multisend request to ${Object.keys(amounts).length} recipients`);
+            logger.info(network, `🔄${reqInfo}[MULTISEND][RECIPIENTS:${Object.keys(amounts).length}]`);
 
             if ((rpc as any).error) {
-                logger.error(network, `❌ LTC multisend error: ${JSON.stringify((rpc as any).error)}`);
+                logger.error(network, `❌${reqInfo}[MULTISEND_ERROR][MSG:${JSON.stringify((rpc as any).error)}]`);
                 await modules.sendMessageToTelegram(
-                    notifierMessage.formatErrorMultiSendLTC(request.payway, request.currency, (rpc as any).error)
+                    notifierMessage.formatErrorMultiSendLTC(
+                        request.payway,
+                        request.currency,
+                        (rpc as any).error,
+                        request.request_id
+                    )
                 );
                 throw new Error(JSON.stringify((rpc as any).error));
             }
 
-            const successMsg = notifierMessage.formatSuccessMultiSendLTC(request.payway, request.currency, rpc);
-            logger.info(network, successMsg);
+            const successMsg = notifierMessage.formatSuccessMultiSendLTC(
+                request.payway,
+                request.currency,
+                rpc,
+                request.request_id
+            );
+            logger.info(network, `✅${reqInfo}[MULTISEND_CONFIRMED][HASH:${rpc.result}]`);
             await modules.sendMessageToTelegram(
                 successMsg
             );
 
             return rpc.result;
         } catch (error) {
-            const errorMsg = notifierMessage.formatErrorMultiSendLTC(request.payway, request.currency, error);
-            logger.error(network, errorMsg);
+            const errorMsg = notifierMessage.formatErrorMultiSendLTC(
+                request.payway,
+                request.currency,
+                error,
+                request.request_id
+            );
+            const errMsg = error instanceof Error ? error.message : String(error);
+            logger.error(network, `❌${reqInfo}[ERROR][MSG:${errMsg}]`);
             await modules.sendMessageToTelegram(
                 errorMsg
             );

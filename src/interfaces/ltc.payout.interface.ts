@@ -8,6 +8,7 @@ export interface LtcBaseRequestBody {
     currency: string;
     amount: number;
     payee_address: string;
+    request_id?: string;
 }
 
 /**
@@ -30,6 +31,7 @@ export interface LtcSendManyRequestBody {
     account?: string;
     comment?: string;
     minconf?: number;
+    request_id?: string;
 }
 
 /**
