@@ -11,67 +11,24 @@ import { getEvmRpcUrlsForPayway, EVMTransactionLogger } from '../utils/modules';
 /* Constants */
 import { Const } from '../constants/const';
 
+import { BaseEvmService } from './base.evm.service';
+
 /**
  * Service class for handling EVM transactions with dynamic gas calculation
  * and automatic fail-over between multiple RPC providers.
  */
-export class PayoutService {
-    private rpcUrls!: string[];
-    private decimalsCache: Record<string, number> = {};
+export class PayoutService extends BaseEvmService {
     /**
      * Constructs a new instance of PayoutService.
      * @param payway – the payment method
      * @param privateKey – the sender’s private key
      */
-    constructor(private payway: string, private privateKey: string) {}
+    constructor(payway: string, privateKey: string) {
+        super(payway, privateKey);
+    }
 
-    /**
-     * Initializes the list of RPC URLs for this payway.
-     * Must be called before sendTransaction().
-     */
     async init() {
-        this.rpcUrls = getEvmRpcUrlsForPayway(this.payway);
-        if (!this.rpcUrls.length) {
-            throw new Error(`No RPC providers configured for payway = ${this.payway}`);
-        }
-    }
-
-    /**
-     * Converts a human-readable amount to base units using bigint math.
-     */
-    private convertToBaseUnit(amount: string, decimals: number): bigint {
-        return parseUnits(amount, decimals);
-    }
-
-    /**
-     * Fetch token decimals via RPC and cache the result.
-     */
-    private async fetchDecimals(
-        client: PublicClient,
-        tokenContract: Address,
-        fallbackDecimals = 18
-    ): Promise<number> {
-        const key = tokenContract.toLowerCase();
-        if (this.decimalsCache[key] !== undefined) {
-            return this.decimalsCache[key];
-        }
-        try {
-            const decVal = await client.readContract({
-                address: tokenContract,
-                abi: Const.MULTI_SEND_ABI_CONTRACT as any,
-                functionName: 'decimals'
-            });
-            const dec = Number(decVal);
-            if (Number.isFinite(dec)) {
-                this.decimalsCache[key] = dec;
-                return dec;
-            }
-            this.decimalsCache[key] = fallbackDecimals;
-            return fallbackDecimals;
-        } catch {
-            this.decimalsCache[key] = fallbackDecimals;
-            return fallbackDecimals;
-        }
+        this.initBase();
     }
 
     private clampGasLimit(estimated: number, isTokenTransfer: boolean): number {
@@ -132,9 +89,6 @@ export class PayoutService {
         };
     }
 
-    /**
-     * Prepare ERC20 token transfer transaction
-     */
     private async prepareTokenTransfer(
         client: PublicClient,
         payeeAddress: string,
@@ -142,7 +96,7 @@ export class PayoutService {
         contract: string
     ): Promise<{ to: Address; data: string }> {
         const tokenAddress = contract as Address;
-        const decimals = await this.fetchDecimals(client, tokenAddress);
+        const decimals = await this.getContractDecimals(client, tokenAddress);
         const value = this.convertToBaseUnit(amount, decimals);
         const data = encodeFunctionData({
             abi: Const.ABI_CONTRACT,
@@ -179,15 +133,13 @@ export class PayoutService {
         currency: string
     ): Promise<{ rawTx: Hex; sender: Hex; nonceLease: NonceLease; chainId: number }> {
         let lastErr;
-        const chain = getChainForPayway(this.payway);
-        const account = privateKeyToAccount(
-            (this.privateKey.startsWith('0x') ? this.privateKey : `0x${this.privateKey}`) as Hex
-        );
+        const chain = this.chain;
+        const account = this.account;
 
         for (let i = 0; i < this.rpcUrls.length; i += 1) {
             const url = this.rpcUrls[i];
             const transport = http(url, { timeout: 10000 });
-            const client = createPublicClient({ chain, transport });
+            const client = createPublicClient({ chain: this.chain, transport }) as PublicClient;
 
             try {
                 const { chainId, gasPrice } = await this.getBasicTxData(client, account);
@@ -302,12 +254,6 @@ export class PayoutService {
         );
     }
 
-    private logTransactionSubmitted(hash: string, url: string, requestId?: string): void {
-        const network = this.payway.toUpperCase();
-        const reqInfo = requestId ? `[${requestId}]` : '';
-        logger.info(network, `📨${reqInfo}[SUBMITTED][${url}][HASH:${hash}]`);
-    }
-
     private waitForReceiptInBackground(
         client: PublicClient,
         hash: Hex,
@@ -363,8 +309,9 @@ export class PayoutService {
             for (let i = 0; i < this.rpcUrls.length; i += 1) {
                 const url = this.rpcUrls[i];
                 const client = createPublicClient({
+                    chain: this.chain,
                     transport: http(url, { timeout: 10000 })
-                });
+                }) as PublicClient;
 
                 const reqInfo = requestId ? `[${requestId}]` : '';
                 logger.info(network, `🔄${reqInfo}[TRY][${url}]`);
@@ -403,8 +350,7 @@ export class PayoutService {
                 }
             }
 
-            throw new Error(`All RPC providers failed for payway = ${this.payway}: ${lastErr?.message || lastErr?.toString?.() || String(lastErr)}`
-            );
+            throw new Error(`All RPC providers failed for payway = ${this.payway}: ${lastErr?.message || lastErr?.toString?.() || String(lastErr)}`);
         } finally {
             await nonceLease.release(success);
         }
