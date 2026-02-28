@@ -53,12 +53,12 @@ npm run app:start   # PORT defaults to 3000
 ```
 
 ## API overview
-| Chain                    | Single                      | Multi-send                      |
-|--------------------------|-----------------------------|---------------------------------|
-| EVM (native/ERC20)       | `POST /payout/evm`          | `POST /payout/evm/multi_send`   |
-| Litecoin                 | `POST /payout/ltc`          | `POST /payout/ltc/multi_send`   |
-| Solana (SOL/SPL/2022)    | `POST /payout/solana`       | `POST /payout/solana/multi_send`|
-| Tron (TRX/TRC20)         | `POST /payout/tron`         | `POST /payout/tron/multi_send`  |
+| Chain                    | Single                      | Multi-send                      | Batch-send (Native + ERC20)     |
+|--------------------------|-----------------------------|---------------------------------|---------------------------------|
+| EVM (native/ERC20)       | `POST /payout/evm`          | `POST /payout/evm/multi_send`   | `POST /payout/evm/batch_send`   |
+| Litecoin                 | `POST /payout/ltc`          | `POST /payout/ltc/multi_send`   | -                               |
+| Solana (SOL/SPL/2022)    | `POST /payout/solana`       | `POST /payout/solana/multi_send`| -                               |
+| Tron (TRX/TRC20)         | `POST /payout/tron`         | `POST /payout/tron/multi_send`  | -                               |
 
 All endpoints respond with:
 ```json
@@ -96,6 +96,33 @@ Set `wait_for_receipt` to `false` to return `tx_id` immediately after submission
     "currency": "ETH",
     "private_key": "...",
     "multi_send_contract": "0x..."
+  }
+}
+```
+
+### EVM (batch-send)
+`POST /payout/evm/batch_send`
+Allows sending both native currency and multiple ERC20 tokens in a single transaction. Automatically converts amounts based on decimals and approves tokens if allowance is insufficient.
+```json
+{
+  "data": {
+    "payway": "eth",
+    "private_key": "...",
+    "currency": "ETH",
+    "batch_send_contract": "0x...",
+    "native_transfers": [
+      {
+        "to": "0x...",
+        "amount": "0.015"
+      }
+    ],
+    "token_transfers": [
+      {
+        "token_address": "0x...",
+        "to": "0x...",
+        "amount": "1"
+      }
+    ]
   }
 }
 ```

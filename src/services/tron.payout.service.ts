@@ -8,6 +8,7 @@ import { notifierMessage } from '../utils/message-formatter';
 
 /* Constants */
 import { Const } from '../constants/const';
+import { TronNormalizedPayload, TronLegacyPayoutRequestBody, TronCurrentPayoutData } from '../interfaces/payout.interface';
 
 /**
  * Service class for handling Tron transactions
@@ -21,7 +22,7 @@ export class TronPayoutService {
      * @param payway - The payment method being used.
      * @param privateKey - The private key of the sender's wallet.
      */
-    constructor(private payway: string, private privateKey: string) {}
+    constructor(private payway: string, private privateKey: string) { }
 
     /**
      * Initializes TronWeb
@@ -135,7 +136,7 @@ export class TronPayoutService {
     async sendTransaction(
         payee_address: string,
         amount: string,
-        contract: string,
+        contract: string | undefined,
         currency: string,
         requestId?: string
     ): Promise<string> {
@@ -150,5 +151,80 @@ export class TronPayoutService {
             await this.logTransactionError(currency, error, requestId);
             throw error;
         }
+    }
+
+    public static normalizeTronPayload(body: unknown): TronNormalizedPayload {
+        if (!body || typeof body !== 'object') {
+            throw new Error('Invalid request body');
+        }
+
+        const raw = body as Record<string, unknown>;
+        const data = typeof raw.data === 'object' && raw.data !== null ? (raw.data as Record<string, unknown>) : raw;
+
+        if ('to' in data && !('payee_address' in data)) {
+            const legacy = data as TronLegacyPayoutRequestBody;
+            const contract = legacy.contract ?? legacy.contract_id;
+
+            return {
+                payway: legacy.payway,
+                private_key: legacy.private_key,
+                currency: legacy.currency,
+                payee_address: legacy.to,
+                amount: legacy.amount,
+                contract,
+                isLegacy: true
+            };
+        }
+
+        const current = data as TronCurrentPayoutData;
+
+        return {
+            payway: current.payway,
+            private_key: current.private_key,
+            currency: current.currency,
+            payee_address: current.payee_address,
+            amount: current.amount,
+            contract: current.contract,
+            isLegacy: false
+        };
+    }
+
+    public static async resolveTronAmount(payload: TronNormalizedPayload, tronService: TronPayoutService): Promise<string> {
+        if (!payload.isLegacy) {
+            return payload.amount;
+        }
+
+        const trimmed = payload.amount.trim();
+        if (trimmed === '' || trimmed.includes('.')) {
+            return trimmed;
+        }
+
+        if (!payload.contract && payload.currency.toUpperCase() === 'TRX') {
+            return TronPayoutService.baseUnitsToDecimal(trimmed, 6);
+        }
+
+        if (payload.contract) {
+            const decimals = await tronService.fetchDecimals(payload.contract);
+            return TronPayoutService.baseUnitsToDecimal(trimmed, decimals);
+        }
+
+        return trimmed;
+    }
+
+    public static baseUnitsToDecimal(amountBase: string, decimals: number): string {
+        if (decimals <= 0) {
+            return amountBase;
+        }
+
+        const negative = amountBase.startsWith('-');
+        const digits = negative ? amountBase.slice(1) : amountBase;
+        const normalizedDigits = digits.replace(/^0+/, '') || '0';
+        const padded = normalizedDigits.padStart(decimals + 1, '0');
+        const integerPart = padded.slice(0, -decimals);
+        const fractionPart = padded.slice(-decimals);
+        const fractionTrimmed = fractionPart.replace(/0+$/, '');
+        const value = fractionTrimmed ? `${integerPart}.${fractionTrimmed}` : integerPart;
+
+        return negative ? `-${value}` : value;
     }
 }

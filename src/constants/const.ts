@@ -13,35 +13,55 @@ export const Const = {
 
     EVM_FEE: {
         GWEI: 10n ** 9n,
-        TIP_FLOOR_POLYGON: 25n * (10n ** 9n),
+        TIP_FLOORS: {
+            eth: 2n * (10n ** 9n),
+            erc20: 2n * (10n ** 9n),
+            ethereum: 2n * (10n ** 9n),
+            bsc: 3n * (10n ** 9n),
+            bep20: 3n * (10n ** 9n),
+            arbitrum_eth: 1n * (10n ** 8n),
+            arbitrum_erc20: 1n * (10n ** 8n),
+            arbitrum: 1n * (10n ** 8n),
+            base_eth: 1n * (10n ** 8n),
+            base_erc20: 1n * (10n ** 8n),
+            base: 1n * (10n ** 8n),
+            polygon_eth: 25n * (10n ** 9n),
+            polygon_erc20: 25n * (10n ** 9n),
+            polygon: 25n * (10n ** 9n),
+        } as Record<string, bigint>,
         MAX_TIP_CAP: 200n * (10n ** 9n),
         MAX_FEE_CAP: 500n * (10n ** 9n),
     },
 
     EVM_RPC_PROVIDERS: {
         eth: [
+            'https://sepolia.drpc.org',
             'https://ethereum-sepolia-rpc.publicnode.com',
             'https://eth-sepolia.g.alchemy.com/public',
             'https://sepolia.infura.io/v3/7a4583d0b3014189bbff7f24582fc5ea'
         ],
         bsc: [
+            'https://bsc-testnet.drpc.org',
             'https://bsc-testnet.bnbchain.org',
             'https://bsc-testnet-rpc.publicnode.com',
             'https://bnb-testnet.g.alchemy.com/public',
             'https://bsc-testnet.infura.io/v3/7a4583d0b3014189bbff7f24582fc5ea'
         ],
         arbitrum_eth: [
+            'https://arbitrum-sepolia.drpc.org',
             'https://arbitrum-sepolia-rpc.publicnode.com',
             'https://arb-sepolia.g.alchemy.com/public',
             'https://arbitrum-sepolia.infura.io/v3/7a4583d0b3014189bbff7f24582fc5ea'
         ],
         base_eth: [
+            'https://base-sepolia.drpc.org',
             'https://sepolia.base.org',
             'https://base-sepolia-rpc.publicnode.com',
             'https://base-sepolia.g.alchemy.com/public',
             'https://base-sepolia.infura.io/v3/7a4583d0b3014189bbff7f24582fc5ea'
         ],
         polygon_eth: [
+            'https://polygon-amoy.drpc.org',
             'https://polygon-amoy-bor-rpc.publicnode.com',
             'https://polygon-amoy.g.alchemy.com/public',
             'https://polygon-amoy.infura.io/v3/7a4583d0b3014189bbff7f24582fc5ea'
@@ -58,7 +78,7 @@ export const Const = {
     AMOY_POLYGON: 'https://polygon-amoy.g.alchemy.com/public',
 
     // Supported ETH payways
-    ETH_PAYWAY: ['eth', 'erc20'],
+    ETH_PAYWAY: ['eth', 'erc20', 'ethereum'],
 
     // Supported BSC payways
     BSC_PAYWAY: ['bsc', 'bep20'],
@@ -67,13 +87,13 @@ export const Const = {
     LTC_PAYWAY: ['ltc'],
 
     // Supported Arbitrum payways
-    ARBITRUM_PAYWAY: ['arbitrum_eth', 'arbitrum_erc20'],
+    ARBITRUM_PAYWAY: ['arbitrum_eth', 'arbitrum_erc20', 'arbitrum'],
 
     // Supported Base payways
-    BASE_PAYWAY: ['base_eth', 'base_erc20'],
+    BASE_PAYWAY: ['base_eth', 'base_erc20', 'base'],
 
     // Supported Polygon payways
-    POLYGON_PAYWAY: ['polygon_eth', 'polygon_erc20'],
+    POLYGON_PAYWAY: ['polygon_eth', 'polygon_erc20', 'polygon'],
 
     // ABI definition for a basic transfer function
     ABI_CONTRACT: [
@@ -111,6 +131,64 @@ export const Const = {
             name: "decimals",
             outputs: [{ name: "", type: "uint8" }],
             type: "function",
+        }
+    ] as AbiItem[],
+
+    ERC20_ABI: [
+        {
+            constant: true,
+            inputs: [],
+            name: "decimals",
+            outputs: [{ name: "", type: "uint8" }],
+            type: "function",
+        },
+        {
+            constant: true,
+            inputs: [
+                { name: "owner", type: "address" },
+                { name: "spender", type: "address" }
+            ],
+            name: "allowance",
+            outputs: [{ name: "", type: "uint256" }],
+            type: "function",
+        },
+        {
+            constant: false,
+            inputs: [
+                { name: "spender", type: "address" },
+                { name: "amount", type: "uint256" }
+            ],
+            name: "approve",
+            outputs: [{ name: "", type: "bool" }],
+            type: "function",
+        }
+    ] as AbiItem[],
+
+    PUBLIC_MULTI_SEND_V1_ABI: [
+        {
+            inputs: [
+                {
+                    components: [
+                        { name: "to", type: "address" },
+                        { name: "amount", type: "uint256" }
+                    ],
+                    name: "nativeTransfers",
+                    type: "tuple[]"
+                },
+                {
+                    components: [
+                        { name: "token", type: "address" },
+                        { name: "to", type: "address" },
+                        { name: "amount", type: "uint256" }
+                    ],
+                    name: "tokenTransfers",
+                    type: "tuple[]"
+                }
+            ],
+            name: "batchSend",
+            outputs: [],
+            stateMutability: "payable",
+            type: "function"
         }
     ] as AbiItem[],
 
@@ -213,7 +291,8 @@ export const Const = {
         '522 origin connection time-out',
         '524 a timeout occurred',
         'request entity too large',
-        'typeerror: networkerror'
+        'typeerror: networkerror',
+        'nonce too low'
     ] as string[],
     FEE_BUMP_ERROR_PATTERNS: [
         'replacement transaction underpriced',

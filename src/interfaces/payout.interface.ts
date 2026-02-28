@@ -41,3 +41,70 @@ export interface MultiPayoutRequestBody {
         token_contract?: string;
     };
 }
+
+/**
+ * Structure for a single native currency transfer in a batch send operation.
+ */
+export interface NativeTransfer {
+    to: string;
+    amount: string;
+}
+
+/**
+ * Structure for a single token transfer in a batch send operation.
+ */
+export interface TokenTransfer {
+    token_address: string;
+    to: string;
+    amount: string;
+}
+
+/**
+ * Structure for a batch-payout transaction request.
+ * Accepts simplified blockchain names (e.g. 'polygon', 'bsc', 'eth').
+ */
+export interface BatchPayoutRequestBody {
+    data: {
+        payway: string;
+        private_key: string;
+        currency?: string;
+        batch_send_contract: string;
+        native_transfers?: NativeTransfer[];
+        token_transfers?: TokenTransfer[];
+        request_id?: string;
+    };
+}
+
+/**
+ * Legacy payout structure for Tron transactions.
+ */
+export type TronLegacyPayoutRequestBody = {
+    from?: string;
+    private_key: string;
+    to: string;
+    amount: string;
+    currency: string;
+    payway: string;
+    contract?: string;
+    contract_id?: string;
+};
+
+/**
+ * Current normalized structure for Tron payout data.
+ */
+export type TronCurrentPayoutData = {
+    payway: string;
+    private_key: string;
+    currency: string;
+    payee_address: string;
+    amount: string;
+    contract?: string;
+};
+
+/**
+ * Normalized internal payload for Tron transactions carrying
+ * an indicator for legacy requests.
+ */
+export type TronNormalizedPayload = TronCurrentPayoutData & {
+    isLegacy: boolean;
+};
