@@ -1,10 +1,10 @@
 /* External dependencies */
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
-import { Address, Hex, createPublicClient, http, parseUnits, type PublicClient, type Chain } from 'viem';
+import { Address, Hex, createPublicClient, http, keccak256, parseUnits, type PublicClient, type Chain } from 'viem';
 
 /* Internal dependencies */
 import { logger } from '../utils/logger';
-import { getChainForPayway, isEvmNetworkError } from '../utils/evm';
+import { getChainForPayway, isEvmAlreadyKnownError, isEvmNetworkError } from '../utils/evm';
 import { getEvmRpcUrlsForPayway, EVMTransactionLogger } from '../utils/modules';
 
 /* Constants */
@@ -193,9 +193,74 @@ export abstract class BaseEvmService {
         logger.info(network, `📨${reqInfo}[SUBMITTED][${url}][HASH:${hash}]`);
     }
 
+    protected async recoverSubmittedTransaction(
+        rawTx: Hex,
+        waitForReceipt: boolean,
+        preferredUrl: string,
+        error: any,
+        requestId?: string
+    ): Promise<{ txHash: Hex; receipt?: any; via: string } | null> {
+        if (!isEvmNetworkError(error) && !isEvmAlreadyKnownError(error)) {
+            return null;
+        }
+
+        const txHash = keccak256(rawTx);
+        const urls = [preferredUrl, ...this.rpcUrls.filter((url) => url !== preferredUrl)];
+        const network = this.payway.toUpperCase();
+        const reqInfo = requestId ? `[${requestId}]` : '';
+
+        for (const url of urls) {
+            const client = createPublicClient({
+                chain: this.chain,
+                transport: http(url, { timeout: 10000 })
+            }) as PublicClient;
+
+            try {
+                const receipt = await client.getTransactionReceipt({ hash: txHash });
+                logger.warn(network, `⚠️${reqInfo}[SEND_RECOVERED][${url}][MODE:receipt][HASH:${receipt.transactionHash}]`);
+                return { txHash: receipt.transactionHash, receipt, via: url };
+            } catch {
+                // Continue with the next recovery strategy.
+            }
+
+            try {
+                await client.getTransaction({ hash: txHash });
+
+                if (!waitForReceipt) {
+                    logger.warn(network, `⚠️${reqInfo}[SEND_RECOVERED][${url}][MODE:tx_lookup][HASH:${txHash}]`);
+                    return { txHash, via: url };
+                }
+
+                const receipt = await client.waitForTransactionReceipt({ hash: txHash });
+                logger.warn(network, `⚠️${reqInfo}[SEND_RECOVERED][${url}][MODE:wait_receipt][HASH:${receipt.transactionHash}]`);
+                return { txHash: receipt.transactionHash, receipt, via: url };
+            } catch {
+                // Continue with the next recovery strategy.
+            }
+
+            if (isEvmAlreadyKnownError(error)) {
+                if (!waitForReceipt) {
+                    logger.warn(network, `⚠️${reqInfo}[SEND_RECOVERED][${url}][MODE:already_known][HASH:${txHash}]`);
+                    return { txHash, via: url };
+                }
+
+                try {
+                    const receipt = await client.waitForTransactionReceipt({ hash: txHash });
+                    logger.warn(network, `⚠️${reqInfo}[SEND_RECOVERED][${url}][MODE:already_known_wait][HASH:${receipt.transactionHash}]`);
+                    return { txHash: receipt.transactionHash, receipt, via: url };
+                } catch {
+                    // Try the next provider.
+                }
+            }
+        }
+
+        return null;
+    }
+
     protected async fanoutSend(
         rawTx: Hex,
-        waitForReceipt: boolean
+        waitForReceipt: boolean,
+        requestId?: string
     ): Promise<{ txHash: Hex; receipt?: any; via: string }> {
         let lastErr: any;
         for (const url of this.rpcUrls) {
@@ -212,6 +277,10 @@ export abstract class BaseEvmService {
                 return { txHash: hash, via: url };
             } catch (err: any) {
                 lastErr = err;
+                const recovered = await this.recoverSubmittedTransaction(rawTx, waitForReceipt, url, err, requestId);
+                if (recovered) {
+                    return recovered;
+                }
                 const msg = err?.message || err?.toString?.() || String(err);
                 logger.error(this.payway.toUpperCase(), `❌[SEND_FAIL][${url}][MSG:${msg}]`);
                 if (!isEvmNetworkError(err)) throw err;

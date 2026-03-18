@@ -76,12 +76,14 @@ All endpoints respond with:
     "contract": "0x...",
     "currency": "ETH",
     "private_key": "...",
-    "wait_for_receipt": true
+    "wait_for_receipt": true,
+    "request_id": "uuid-or-stable-client-id"
   }
 }
 ```
 Omit `contract` to send native ETH instead of ERC20.
 Set `wait_for_receipt` to `false` to return `tx_id` immediately after submission; the service will wait for the receipt in the background.
+Pass a stable `request_id` on client retries so the same payout request can be safely replayed without creating a new transaction.
 
 ### EVM (multi-send)
 `POST /payout/evm/multi_send`
@@ -95,7 +97,9 @@ Set `wait_for_receipt` to `false` to return `tx_id` immediately after submission
     ],
     "currency": "ETH",
     "private_key": "...",
-    "multi_send_contract": "0x..."
+    "multi_send_contract": "0x...",
+    "wait_for_receipt": true,
+    "request_id": "uuid-or-stable-client-id"
   }
 }
 ```

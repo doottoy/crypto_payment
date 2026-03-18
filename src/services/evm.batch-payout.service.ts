@@ -213,7 +213,7 @@ export class EvmBatchPayoutService extends BaseEvmService {
             logger.info(network, `🔄${reqInfo}[${context} ATTEMPT ${attempt}/${maxAttempts}][RAW:${rawHash}]`);
 
             try {
-                const res = await this.fanoutSend(rawTx, waitForReceipt);
+                const res = await this.fanoutSend(rawTx, waitForReceipt, requestId);
                 if (waitForReceipt && currency && context === 'BATCH_SEND') {
                     await this.logSuccessfulTransaction(
                         { txHash: res.txHash, receipt: res.receipt as any, via: res.via },

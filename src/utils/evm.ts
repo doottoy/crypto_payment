@@ -19,18 +19,34 @@ export function getChainForPayway(payway: string): Chain {
     throw new Error(`Unsupported payway for chain mapping: ${payway}`);
 }
 
-/**
- * Determines whether an error is network-related (DNS, timeout, connection).
- */
-export function isEvmNetworkError(err: any): boolean {
-    const msg = (
+export function getEvmErrorMessage(err: any): string {
+    return (
         err?.message ||
         err?.data?.message ||
         err?.toString?.() ||
         ''
     ).toLowerCase();
+}
+
+/**
+ * Determines whether an error is network-related (DNS, timeout, connection).
+ */
+export function isEvmNetworkError(err: any): boolean {
+    const msg = getEvmErrorMessage(err);
 
     return (Const.NETWORK_ERROR_PATTERNS as readonly string[]).some((sub) => msg.includes(sub));
 }
 
+/**
+ * Detects provider replies that indicate the signed transaction is already in the mempool.
+ */
+export function isEvmAlreadyKnownError(err: any): boolean {
+    const msg = getEvmErrorMessage(err);
 
+    return [
+        'already known',
+        'already imported',
+        'known transaction',
+        'tx already exists'
+    ].some((sub) => msg.includes(sub));
+}
