@@ -181,6 +181,29 @@ app.post('/payout/solana/multi_send', async (req: Request, res: Response, next: 
     }
 });
 
+/* Endpoint for processing Solana SPL transfers via an ephemeral intermediate ATA */
+app.post('/payout/solana/intermediate_ata', async (req: Request, res: Response, next: NextFunction) => {
+    const { payway, private_key, currency, amount, payee_address, token_mint, is_token_2022, request_id }: SolanaPayoutRequestBody['data'] = req.body.data;
+
+    const solanaService = new SolanaPayoutService(payway, private_key);
+
+    try {
+        await solanaService.init();
+
+        const txHash = await solanaService.sendWithIntermediateAta(
+            payee_address,
+            amount,
+            token_mint,
+            currency,
+            is_token_2022 || false,
+            request_id
+        );
+        res.json({ tx_id: txHash });
+    } catch (error) {
+        next(error);
+    }
+});
+
 /* Endpoint for create token account */
 app.post('/solana/create_token_account', async (req: Request, res: Response, next: NextFunction) => {
     const { payway, private_key, token_mint, owner_address } = req.body.data;

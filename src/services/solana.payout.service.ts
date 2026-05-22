@@ -14,8 +14,13 @@ import {
     createAccount,
     TOKEN_PROGRAM_ID,
     TOKEN_2022_PROGRAM_ID,
+    getAssociatedTokenAddress,
     createTransferInstruction,
-    getOrCreateAssociatedTokenAccount
+    createCloseAccountInstruction,
+    createTransferCheckedInstruction,
+    getOrCreateAssociatedTokenAccount,
+    createAssociatedTokenAccountInstruction,
+    createAssociatedTokenAccountIdempotentInstruction
 } from '@solana/spl-token';
 
 /* Internal dependencies */
@@ -221,6 +226,160 @@ export class SolanaPayoutService {
             return signature;
         } catch (error) {
             throw error;
+        }
+    }
+
+    /**
+     * Sends SPL tokens via an ephemeral intermediate ATA in a single transaction.
+     * 
+     * @param payeeAddress - Final recipient (owner of the destination ATA)
+     * @param amount - Amount to transfer (human-readable units)
+     * @param tokenMint - Mint address of the SPL-token (classic or Token-2022)
+     * @param currency - Currency identifier for notifications/logging
+     * @param isToken2022 - Pass true for Token-2022 minted tokens
+     * @param requestId - Optional request identifier for log/notification correlation
+     * @returns Transaction signature (hash)
+     */
+    public async sendWithIntermediateAta(
+        payeeAddress: string,
+        amount: string,
+        tokenMint: string,
+        currency: string,
+        isToken2022: boolean = false,
+        requestId?: string
+    ): Promise<string> {
+        const network = this.payway.toUpperCase();
+        const reqInfo = requestId ? `[${requestId}]` : '';
+        try {
+            const mintPubkey = new PublicKey(tokenMint);
+            const payeePubkey = new PublicKey(payeeAddress);
+            const tokenProgramId = isToken2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+
+            // Ephemeral keypair that owns the intermediate ATA (signs leg #4 and CloseAccount).
+            // Mirrors the bridge/router pattern where the intermediate's owner is a
+            // distinct address from sender and recipient.
+            const intermediateOwner = Keypair.generate();
+
+            logger.info(
+                network,
+                `🔄${reqInfo}[INTERMEDIATE_ATA_SEND][AMOUNT:${amount}][CUR:${currency}][TO:${payeeAddress}][MINT:${tokenMint}][INTERMEDIATE_OWNER:${intermediateOwner.publicKey.toBase58()}]`
+            );
+
+            // Make sure payer's source ATA exists and is funded — outside the tx,
+            // so the test transaction itself contains exactly the bug pattern.
+            const senderAta = await (getOrCreateAssociatedTokenAccount as any)(
+                this.connection,
+                this.payer,
+                mintPubkey,
+                this.payer.publicKey,
+                false,
+                undefined,
+                undefined,
+                tokenProgramId
+            );
+
+            // Pre-compute ATAs that will be created inside the tx.
+            const intermediateAta = await getAssociatedTokenAddress(
+                mintPubkey,
+                intermediateOwner.publicKey,
+                false,
+                tokenProgramId
+            );
+            const destinationAta = await getAssociatedTokenAddress(
+                mintPubkey,
+                payeePubkey,
+                false,
+                tokenProgramId
+            );
+
+            const decimals = await fetchDecimals(this.connection, tokenMint);
+            const tokenAmount = BigInt(Math.floor(parseFloat(amount) * 10 ** decimals));
+
+            const tx = new Transaction();
+
+            // 1. Create intermediate ATA
+            tx.add(
+                createAssociatedTokenAccountInstruction(
+                    this.payer.publicKey,
+                    intermediateAta,
+                    intermediateOwner.publicKey,
+                    mintPubkey,
+                    tokenProgramId
+                )
+            );
+
+            // 2. Create destination ATA (idempotent — payee ATA may already exist)
+            tx.add(
+                createAssociatedTokenAccountIdempotentInstruction(
+                    this.payer.publicKey,
+                    destinationAta,
+                    payeePubkey,
+                    mintPubkey,
+                    tokenProgramId
+                )
+            );
+
+            // 3. TransferChecked: sender → intermediate (transit leg)
+            tx.add(
+                createTransferCheckedInstruction(
+                    senderAta.address,
+                    mintPubkey,
+                    intermediateAta,
+                    this.payer.publicKey,
+                    tokenAmount,
+                    decimals,
+                    [],
+                    tokenProgramId
+                )
+            );
+
+            // 4. TransferChecked: intermediate → destination (the leg the parser used to drop)
+            tx.add(
+                createTransferCheckedInstruction(
+                    intermediateAta,
+                    mintPubkey,
+                    destinationAta,
+                    intermediateOwner.publicKey,
+                    tokenAmount,
+                    decimals,
+                    [],
+                    tokenProgramId
+                )
+            );
+
+            // 5. Close intermediate ATA; rent goes back to payer
+            tx.add(
+                createCloseAccountInstruction(
+                    intermediateAta,
+                    this.payer.publicKey,
+                    intermediateOwner.publicKey,
+                    [],
+                    tokenProgramId
+                )
+            );
+
+            const signature = await sendAndConfirmTransaction(
+                this.connection,
+                tx,
+                [this.payer, intermediateOwner]
+            );
+
+            const successMsg = notifierMessage.formatSuccessSolanaTransaction(
+                currency,
+                signature,
+                this.payer.publicKey.toBase58(),
+                amount,
+                requestId
+            );
+            logger.info(network, `✅${reqInfo}[INTERMEDIATE_ATA_CONFIRMED][HASH:${signature}]`);
+            await modules.sendMessageToTelegram(successMsg);
+
+            return signature;
+        } catch (error) {
+            const formattedError = formatSolanaError(error);
+            logger.error(network, `❌${reqInfo}[INTERMEDIATE_ATA_ERROR][MSG:${formattedError}]`);
+            await modules.sendMessageToTelegram(notifierMessage.formatErrorSolana(currency, formattedError, requestId));
+            throw new Error(formattedError);
         }
     }
 
