@@ -292,6 +292,7 @@ export const Const = {
         '524 a timeout occurred',
         'request entity too large',
         'typeerror: networkerror',
+        'failed to publish transaction to any of the forwarding targets',
         'nonce too low'
     ] as string[],
     FEE_BUMP_ERROR_PATTERNS: [
