@@ -21,6 +21,9 @@ import { SolanaMultiPayoutService } from './services/solana.multi-payout.service
 import { LtcPayoutRequestBody, LtcSendManyPayoutRequestBody } from './interfaces/ltc.payout.interface';
 import { MultiPayoutRequestBody, PayoutRequestBody, BatchPayoutRequestBody, TronCurrentPayoutData, TronLegacyPayoutRequestBody, TronNormalizedPayload } from './interfaces/payout.interface';
 import { IdempotencyConflictError, requestIdRegistry } from './utils/idempotency';
+import { Const } from './constants/const';
+import { EthBridgeService } from './services/eth-bridge.service';
+import { BridgeRequestBody } from './interfaces/bridge.interface';
 
 /* Setup express */
 const app = express();
@@ -98,6 +101,36 @@ app.post('/payout/evm/batch_send', async (req: Request, res: Response, next: Nex
             const evmBatchService = new EvmBatchPayoutService(payway, private_key);
             await evmBatchService.init(batch_send_contract);
             return evmBatchService.batchSend(native_transfers, token_transfers, currency, true, request_id);
+        });
+        res.json({ tx_id: txHash });
+    } catch (error) {
+        handleRouteError(error, res, next);
+    }
+});
+
+/* Endpoint for native ETH L1->L2 bridge deposits (Sepolia -> Base/Arbitrum Sepolia) */
+app.post('/bridge/eth', async (req: Request, res: Response, next: NextFunction) => {
+    const {
+        destination,
+        private_key,
+        amount,
+        payee_address,
+        wait_for_receipt = true,
+        request_id
+    }: BridgeRequestBody['data'] = req.body.data;
+
+    try {
+        if (!Const.BRIDGE_DESTINATIONS.includes(destination)) {
+            res.status(400).json({
+                error: `Unsupported bridge destination: ${destination}. Supported: ${Const.BRIDGE_DESTINATIONS.join(', ')}`
+            });
+            return;
+        }
+
+        const txHash = await requestIdRegistry.run('bridge/eth', request_id, req.body.data, async () => {
+            const bridgeService = new EthBridgeService(private_key);
+            await bridgeService.init();
+            return bridgeService.deposit(destination, amount, payee_address, wait_for_receipt, request_id);
         });
         res.json({ tx_id: txHash });
     } catch (error) {

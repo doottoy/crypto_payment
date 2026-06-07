@@ -95,6 +95,29 @@ export const Const = {
     // Supported Polygon payways
     POLYGON_PAYWAY: ['polygon_eth', 'polygon_erc20', 'polygon'],
 
+    // --- Native ETH L1->L2 bridge (deposit from Sepolia) ---
+
+    // Supported bridge destinations (source chain is always Sepolia L1)
+    BRIDGE_DESTINATIONS: ['base', 'arbitrum'] as string[],
+
+    // Base Sepolia (OP Stack) L1StandardBridge on Sepolia — value taken from viem/chains baseSepolia.contracts
+    BASE_SEPOLIA_L1_STANDARD_BRIDGE: '0xfd0Bf71F60660E2f608ed56e1659C450eB113120',
+
+    // Arbitrum Sepolia Delayed Inbox on Sepolia — from the Arbitrum contract-address registry
+    ARBITRUM_SEPOLIA_INBOX: '0xaAe29B0366299461418F5324a79Afc425BE5ae21',
+
+    // L2 gas limit credited for finalizing an OP Stack ETH deposit on Base
+    OP_DEPOSIT_MIN_GAS_LIMIT: 200000,
+
+    // Fixed L2 gas limit for an Arbitrum retryable ticket that only moves ETH (empty calldata)
+    ARBITRUM_RETRYABLE_GAS_LIMIT: 100000n,
+
+    // Safety multiplier applied to the on-chain submission fee and L2 gas-price reads
+    ARBITRUM_FEE_BUFFER_FACTOR: 2n,
+
+    // Floor for the Arbitrum L2 gas-price bid (0.1 gwei)
+    ARBITRUM_L2_GAS_PRICE_FLOOR: 10n ** 8n,
+
     // ABI definition for a basic transfer function
     ABI_CONTRACT: [
         {
@@ -191,6 +214,68 @@ export const Const = {
             type: "function"
         }
     ] as AbiItem[],
+
+    // ABI for the OP Stack L1StandardBridge (Base) — native ETH deposits
+    L1_STANDARD_BRIDGE_ABI: [
+        {
+            type: 'function',
+            name: 'depositETH',
+            stateMutability: 'payable',
+            inputs: [
+                { name: '_minGasLimit', type: 'uint32' },
+                { name: '_extraData', type: 'bytes' }
+            ],
+            outputs: []
+        },
+        {
+            type: 'function',
+            name: 'bridgeETHTo',
+            stateMutability: 'payable',
+            inputs: [
+                { name: '_to', type: 'address' },
+                { name: '_minGasLimit', type: 'uint32' },
+                { name: '_extraData', type: 'bytes' }
+            ],
+            outputs: []
+        }
+    ] as const,
+
+    // ABI for the Arbitrum Delayed Inbox — native ETH deposits
+    ARBITRUM_INBOX_ABI: [
+        {
+            type: 'function',
+            name: 'depositEth',
+            stateMutability: 'payable',
+            inputs: [],
+            outputs: [{ name: '', type: 'uint256' }]
+        },
+        {
+            type: 'function',
+            name: 'createRetryableTicket',
+            stateMutability: 'payable',
+            inputs: [
+                { name: 'to', type: 'address' },
+                { name: 'l2CallValue', type: 'uint256' },
+                { name: 'maxSubmissionCost', type: 'uint256' },
+                { name: 'excessFeeRefundAddress', type: 'address' },
+                { name: 'callValueRefundAddress', type: 'address' },
+                { name: 'gasLimit', type: 'uint256' },
+                { name: 'maxFeePerGas', type: 'uint256' },
+                { name: 'data', type: 'bytes' }
+            ],
+            outputs: [{ name: '', type: 'uint256' }]
+        },
+        {
+            type: 'function',
+            name: 'calculateRetryableSubmissionFee',
+            stateMutability: 'view',
+            inputs: [
+                { name: 'dataLength', type: 'uint256' },
+                { name: 'baseFee', type: 'uint256' }
+            ],
+            outputs: [{ name: '', type: 'uint256' }]
+        }
+    ] as const,
 
     // Testnet explorers urls
     TESTNET_EXPLORER: {
