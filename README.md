@@ -236,7 +236,7 @@ For TRC20, set `payway` to `trc20`, provide `contract`, and set `currency` accor
 
 ### Bridge (native ETH, L1 → L2)
 `POST /bridge/eth`
-Deposits native ETH from Sepolia (L1) to an L2 — Base Sepolia (OP Stack) or Arbitrum Sepolia (Nitro). The source chain is always Sepolia.
+Deposits native ETH from Sepolia (L1) to an L2 - Base Sepolia (OP Stack) or Arbitrum Sepolia (Nitro). The source chain is always Sepolia.
 ```json
 {
   "data": {
@@ -251,7 +251,7 @@ Deposits native ETH from Sepolia (L1) to an L2 — Base Sepolia (OP Stack) or Ar
 ```
 - `destination`: `base` or `arbitrum`.
 - Omit `payee_address` to bridge to the sender's own address on the L2; provide it to credit a different recipient. (For Arbitrum with a custom recipient the service uses a retryable ticket, reading the submission fee and L2 gas price on-chain.)
-- The returned `tx_id` is the **L1 deposit hash**; funds arrive on the L2 asynchronously (≈1–3 min for Base, ≈10–15 min for Arbitrum).
+- The returned `tx_id` is the **L1 deposit hash**; funds arrive on the L2 asynchronously (≈1-3 min for Base, ≈10-15 min for Arbitrum).
 - `request_id` gives the same idempotency behaviour as the EVM payout endpoints.
 
 ## Observability
