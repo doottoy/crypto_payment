@@ -199,14 +199,27 @@ export class PayoutService extends BaseEvmService {
         client: PublicClient,
         rawTx: Hex,
         url: string,
-        waitForReceipt: boolean
+        waitForReceipt: boolean,
+        requestId?: string
     ): Promise<{ hash: Hex; receipt?: any }> {
-        const hash = await client.sendRawTransaction({ serializedTransaction: rawTx });
-        if (waitForReceipt) {
-            const receipt = await client.waitForTransactionReceipt({ hash });
-            return { hash: receipt.transactionHash, receipt };
+        try {
+            const hash = await client.sendRawTransaction({ serializedTransaction: rawTx });
+            if (waitForReceipt) {
+                const receipt = await client.waitForTransactionReceipt({ hash });
+                return { hash: receipt.transactionHash, receipt };
+            }
+            return { hash };
+        } catch (error) {
+            const recovered = await this.recoverSubmittedTransaction(rawTx, waitForReceipt, url, error, requestId);
+            if (recovered) {
+                return {
+                    hash: recovered.txHash,
+                    receipt: recovered.receipt
+                };
+            }
+
+            throw error;
         }
-        return { hash };
     }
 
     /**
@@ -318,7 +331,7 @@ export class PayoutService extends BaseEvmService {
                 const start = Date.now();
 
                 try {
-                    const result = await this.sendViaProvider(client, rawTx, url, waitForReceipt);
+                    const result = await this.sendViaProvider(client, rawTx, url, waitForReceipt, requestId);
                     const duration = Date.now() - start;
                     if (waitForReceipt) {
                         await this.logSuccessfulTransaction(

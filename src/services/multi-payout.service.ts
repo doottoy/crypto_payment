@@ -271,7 +271,7 @@ export class MultiPayoutService extends BaseEvmService {
             logger.info(network, `🔄${reqInfo}[ATTEMPT ${attempt}/${maxAttempts}][RAW:${rawHash}]`);
 
             try {
-                const res = await this.fanoutSend(rawTx, waitForReceipt);
+                const res = await this.fanoutSend(rawTx, waitForReceipt, requestId);
                 if (waitForReceipt) {
                     await this.logSuccessfulTransaction(
                         { txHash: res.txHash, receipt: res.receipt as any, via: res.via },

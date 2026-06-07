@@ -20,6 +20,10 @@ import { SolanaPayoutRequestBody } from './interfaces/solana.payout.interface';
 import { SolanaMultiPayoutService } from './services/solana.multi-payout.service';
 import { LtcPayoutRequestBody, LtcSendManyPayoutRequestBody } from './interfaces/ltc.payout.interface';
 import { MultiPayoutRequestBody, PayoutRequestBody, BatchPayoutRequestBody, TronCurrentPayoutData, TronLegacyPayoutRequestBody, TronNormalizedPayload } from './interfaces/payout.interface';
+import { IdempotencyConflictError, requestIdRegistry } from './utils/idempotency';
+import { Const } from './constants/const';
+import { EthBridgeService } from './services/eth-bridge.service';
+import { BridgeRequestBody } from './interfaces/bridge.interface';
 
 /* Setup express */
 const app = express();
@@ -28,41 +32,63 @@ const port = process.env.PORT || 3000;
 /* Middleware to parse JSON request bodies */
 app.use(express.json());
 
+function handleRouteError(error: unknown, res: Response, next: NextFunction): void {
+    if (error instanceof IdempotencyConflictError) {
+        res.status(error.statusCode).json({ error: error.message });
+        return;
+    }
+
+    next(error);
+}
+
 /* Endpoint for processing single EVM payout transactions */
 app.post('/payout/evm', async (req: Request, res: Response, next: NextFunction) => {
     // Destructure the request body to extract payout details
-    const { payway, payee_address, amount, contract, currency, private_key }: PayoutRequestBody['data'] = req.body.data;
-
-    // Initialize the PayoutService with the specified payment way and private key
-    const evmService = new PayoutService(payway, private_key);
+    const {
+        payway,
+        payee_address,
+        amount,
+        contract,
+        currency,
+        private_key,
+        wait_for_receipt = true,
+        request_id
+    }: PayoutRequestBody['data'] = req.body.data;
 
     try {
-        await evmService.init();
-        // Send the transaction and return the transaction hash
-        const txHash = await evmService.sendTransaction(payee_address, amount, contract, currency);
+        const txHash = await requestIdRegistry.run('payout/evm', request_id, req.body.data, async () => {
+            const evmService = new PayoutService(payway, private_key);
+            await evmService.init();
+            return evmService.sendTransaction(payee_address, amount, contract, currency, wait_for_receipt, request_id);
+        });
         res.json({ tx_id: txHash });
     } catch (error) {
-        // Pass the error to the global error handler
-        next(error);
+        handleRouteError(error, res, next);
     }
 });
 
 /* Endpoint for processing multi-send EVM transactions */
 app.post('/payout/evm/multi_send', async (req: Request, res: Response, next: NextFunction) => {
     // Destructure the request body to extract multi-send payout details
-    const { payway, recipients, private_key, currency, multi_send_contract }: MultiPayoutRequestBody['data'] = req.body.data;
-
-    // Initialize the MultiPayoutService with the specified payment way and private key
-    const multiSendService = new MultiPayoutService(payway, private_key);
+    const {
+        payway,
+        recipients,
+        private_key,
+        currency,
+        multi_send_contract,
+        wait_for_receipt = true,
+        request_id
+    }: MultiPayoutRequestBody['data'] = req.body.data;
 
     try {
-        await multiSendService.init(multi_send_contract);
-        // Execute the multi-send transaction and return the transaction hash
-        const txHash = await multiSendService.multiSend(recipients, multi_send_contract, currency);
+        const txHash = await requestIdRegistry.run('payout/evm/multi_send', request_id, req.body.data, async () => {
+            const multiSendService = new MultiPayoutService(payway, private_key);
+            await multiSendService.init(multi_send_contract);
+            return multiSendService.multiSend(recipients, multi_send_contract, currency, wait_for_receipt, request_id);
+        });
         res.json({ tx_id: txHash });
     } catch (error) {
-        // Pass the error to the global error handler
-        next(error);
+        handleRouteError(error, res, next);
     }
 });
 
@@ -70,14 +96,45 @@ app.post('/payout/evm/multi_send', async (req: Request, res: Response, next: Nex
 app.post('/payout/evm/batch_send', async (req: Request, res: Response, next: NextFunction) => {
     const { payway, private_key, currency, batch_send_contract, native_transfers, token_transfers, request_id }: BatchPayoutRequestBody['data'] = req.body.data;
 
-    const evmBatchService = new EvmBatchPayoutService(payway, private_key);
-
     try {
-        await evmBatchService.init(batch_send_contract);
-        const txHash = await evmBatchService.batchSend(native_transfers, token_transfers, currency, true, request_id);
+        const txHash = await requestIdRegistry.run('payout/evm/batch_send', request_id, req.body.data, async () => {
+            const evmBatchService = new EvmBatchPayoutService(payway, private_key);
+            await evmBatchService.init(batch_send_contract);
+            return evmBatchService.batchSend(native_transfers, token_transfers, currency, true, request_id);
+        });
         res.json({ tx_id: txHash });
     } catch (error) {
-        next(error);
+        handleRouteError(error, res, next);
+    }
+});
+
+/* Endpoint for native ETH L1->L2 bridge deposits (Sepolia -> Base/Arbitrum Sepolia) */
+app.post('/bridge/eth', async (req: Request, res: Response, next: NextFunction) => {
+    const {
+        destination,
+        private_key,
+        amount,
+        payee_address,
+        wait_for_receipt = true,
+        request_id
+    }: BridgeRequestBody['data'] = req.body.data;
+
+    try {
+        if (!Const.BRIDGE_DESTINATIONS.includes(destination)) {
+            res.status(400).json({
+                error: `Unsupported bridge destination: ${destination}. Supported: ${Const.BRIDGE_DESTINATIONS.join(', ')}`
+            });
+            return;
+        }
+
+        const txHash = await requestIdRegistry.run('bridge/eth', request_id, req.body.data, async () => {
+            const bridgeService = new EthBridgeService(private_key);
+            await bridgeService.init();
+            return bridgeService.deposit(destination, amount, payee_address, wait_for_receipt, request_id);
+        });
+        res.json({ tx_id: txHash });
+    } catch (error) {
+        handleRouteError(error, res, next);
     }
 });
 
