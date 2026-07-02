@@ -11,6 +11,14 @@ export const Const = {
     // Tron fee limit
     TRON_FEE_LIMIT: 100000000,
 
+    // Tron broadcast verification: the node can reject a broadcast ({ result: false, code })
+    // while the locally-computed txid is still present in the response. Rejections with the
+    // codes below are transient and safe to retry with a freshly built transaction.
+    TRON_BROADCAST_MAX_ATTEMPTS: 3,
+    TRON_BROADCAST_RETRY_DELAY_MS: 2000,
+    // NOTE: 'BANDWITH_ERROR' is the actual (misspelled) enum value in java-tron
+    TRON_BROADCAST_RETRYABLE_CODES: ['SERVER_BUSY', 'BANDWITH_ERROR', 'TAPOS_ERROR', 'TRANSACTION_EXPIRATION_ERROR'],
+
     EVM_FEE: {
         GWEI: 10n ** 9n,
         TIP_FLOORS: {

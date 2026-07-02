@@ -5,6 +5,7 @@ import { TronWeb } from 'tronweb';
 import { logger } from '../utils/logger';
 import { modules } from '../utils/modules';
 import { notifierMessage } from '../utils/message-formatter';
+import { sendTronTransactionVerified } from '../utils/tron-broadcast';
 
 /* Constants */
 import { Const } from '../constants/const';
@@ -71,8 +72,13 @@ export class TronPayoutService {
      */
     private async sendNativeTransaction(payeeAddress: string, amount: string): Promise<string> {
         const sunAmount = this.convertToBaseUnit(amount, 6);
-        const res = await this.tronWeb.trx.sendTransaction(payeeAddress, sunAmount);
-        return this.extractTxId(res);
+        // CN2-3910: verify the node accepted the broadcast - a rejected send still carries a
+        // locally-computed txid, which must never be returned as if the tx was on-chain.
+        return sendTronTransactionVerified(
+            this.tronWeb,
+            this.payway.toUpperCase(),
+            () => this.tronWeb.trx.sendTransaction(payeeAddress, sunAmount)
+        );
     }
 
     /**
@@ -87,16 +93,12 @@ export class TronPayoutService {
         const baseAmount = this.convertToBaseUnit(amount, decimals);
         const tokenContract = await this.tronWeb.contract().at(contract);
 
-        const res = await tokenContract.transfer(payeeAddress, baseAmount).send({ feeLimit: Const.TRON_FEE_LIMIT });
-        return this.extractTxId(res);
-    }
-
-    private extractTxId(result: any): string {
-        if (typeof result === 'string') return result;
-        if (result?.txid) return result.txid;
-        if (result?.transaction?.txID) return result.transaction.txID;
-        if (result?.transaction?.txId) return result.transaction.txId;
-        return String(result);
+        // CN2-3910: same broadcast verification as for native sends
+        return sendTronTransactionVerified(
+            this.tronWeb,
+            this.payway.toUpperCase(),
+            () => tokenContract.transfer(payeeAddress, baseAmount).send({ feeLimit: Const.TRON_FEE_LIMIT })
+        );
     }
 
     /**

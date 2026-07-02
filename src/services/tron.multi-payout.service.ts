@@ -6,6 +6,7 @@ import { logger } from '../utils/logger';
 import { modules } from '../utils/modules';
 import { Recipient } from '../interfaces/payout.interface';
 import { notifierMessage } from '../utils/message-formatter';
+import { sendTronTransactionVerified } from '../utils/tron-broadcast';
 
 /* Constants */
 import { Const } from '../constants/const';
@@ -60,28 +61,25 @@ export class TronMultiPayoutService {
      * Send native TRX multi-transfer
      */
     private async sendNativeMultiTransfer(addresses: string[], amounts: string[]): Promise<string> {
-        const res = await this.contractInstance
-            .multiTransferTrx(addresses, amounts)
-            .send({ feeLimit: Const.TRON_FEE_LIMIT });
-        return this.extractTxId(res);
+        // CN2-3910: verify the node accepted the broadcast - a rejected send still carries a
+        // locally-computed txid, which must never be returned as if the tx was on-chain.
+        return sendTronTransactionVerified(
+            this.tronWeb,
+            this.payway.toUpperCase(),
+            () => this.contractInstance.multiTransferTrx(addresses, amounts).send({ feeLimit: Const.TRON_FEE_LIMIT })
+        );
     }
 
     /**
      * Send TRC20 token multi-transfer
      */
     private async sendTokenMultiTransfer(token: string, addresses: string[], amounts: string[]): Promise<string> {
-        const res = await this.contractInstance
-            .multiTransferToken(token, addresses, amounts)
-            .send({ feeLimit: Const.TRON_FEE_LIMIT });
-        return this.extractTxId(res);
-    }
-
-    private extractTxId(result: any): string {
-        if (typeof result === 'string') return result;
-        if (result?.txid) return result.txid;
-        if (result?.transaction?.txID) return result.transaction.txID;
-        if (result?.transaction?.txId) return result.transaction.txId;
-        return String(result);
+        // CN2-3910: same broadcast verification as for the native multi-transfer
+        return sendTronTransactionVerified(
+            this.tronWeb,
+            this.payway.toUpperCase(),
+            () => this.contractInstance.multiTransferToken(token, addresses, amounts).send({ feeLimit: Const.TRON_FEE_LIMIT })
+        );
     }
 
     /**
