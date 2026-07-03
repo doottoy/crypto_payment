@@ -40,7 +40,12 @@ export class PayoutService extends BaseEvmService {
         const cap = isTokenTransfer ? MAX_TOKEN : MAX_NATIVE;
         const MIN = isTokenTransfer ? 60000 : 21000;
 
-        return Math.max(MIN, Math.min(withBuffer, cap));
+        // Never clamp below the node's own estimate: on Arbitrum gasUsed includes the L1 data
+        // component, so a legit estimate routinely exceeds these caps - capping below it
+        // guarantees an out-of-gas revert (gas burned, tx mined with status=0, the "deposit"
+        // never lands). Unused gas is refunded, so a limit above the cap costs nothing extra;
+        // the cap now only trims the buffer, not the estimate itself.
+        return Math.max(MIN, Math.ceil(estimated), Math.min(withBuffer, cap));
     }
 
     /**

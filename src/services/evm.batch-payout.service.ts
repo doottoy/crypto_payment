@@ -192,7 +192,8 @@ export class EvmBatchPayoutService extends BaseEvmService {
             data: data as Hex,
             value
         });
-        const gas = Math.min(Number(estimatedGas) + 20000, Const.MULTI_SEND_GAS_LIMIT * 2);
+        // Cap trims the buffer only - never go below the node's estimate (Arbitrum estimates include the L1 data component and can legitimately exceed the cap; below-estimate limit = guaranteed OOG revert)
+        const gas = Math.max(Number(estimatedGas), Math.min(Number(estimatedGas) + 20000, Const.MULTI_SEND_GAS_LIMIT * 2));
 
         const [nonce, chainId] = await Promise.all([
             client.getTransactionCount({ address: sender, blockTag: 'pending' }),

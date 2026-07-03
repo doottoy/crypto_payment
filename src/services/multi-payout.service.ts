@@ -113,7 +113,8 @@ export class MultiPayoutService extends BaseEvmService {
             });
             logger.info(network, `🧾[MULTI_SEND][TYPE:payable][VALUE:${totalValue}]`);
             return {
-                gas: Math.min(Number(estimatedGas) + 10000, Const.MULTI_SEND_GAS_LIMIT),
+                // Cap trims the buffer only - never below the estimate (Arbitrum L1 component inflates estimates; below-estimate limit = guaranteed OOG revert)
+                gas: Math.max(Number(estimatedGas), Math.min(Number(estimatedGas) + 10000, Const.MULTI_SEND_GAS_LIMIT)),
                 txValue: totalValue
             };
         } catch {
@@ -129,7 +130,8 @@ export class MultiPayoutService extends BaseEvmService {
         });
         logger.info(network, `🧾[MULTI_SEND][TYPE:pre-funded][VALUE:0]`);
         return {
-            gas: Math.min(Number(estimatedGas) + 10000, Const.MULTI_SEND_GAS_LIMIT),
+            // Cap trims the buffer only - never below the estimate (see the payable path note)
+            gas: Math.max(Number(estimatedGas), Math.min(Number(estimatedGas) + 10000, Const.MULTI_SEND_GAS_LIMIT)),
             txValue: 0n
         };
     }
