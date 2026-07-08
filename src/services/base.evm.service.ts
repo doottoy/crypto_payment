@@ -37,16 +37,26 @@ export abstract class BaseEvmService {
         }
     }
 
-    protected getFirstHealthyClient(): PublicClient {
+    protected async getFirstHealthyClient(): Promise<PublicClient> {
+        let lastErr: any;
         for (const url of this.rpcUrls) {
+            const client = createPublicClient({
+                chain: this.chain,
+                transport: http(url, { timeout: 10000 })
+            }) as PublicClient;
             try {
-                const transport = http(url, { timeout: 10000 });
-                return createPublicClient({ chain: this.chain, transport }) as PublicClient;
-            } catch (e) {
+                // Real probe: exercise the same read the callers rely on (pending block).
+                // A flaky provider (e.g. drpc.org returning -32006 under load) is skipped here
+                // instead of blowing up later in buildInitialFees/estimateGas, which have no fallback.
+                await client.getBlock({ blockTag: 'pending' as any });
+                return client;
+            } catch (err: any) {
+                lastErr = err;
+                logger.warn(this.payway.toUpperCase(), `⚠️[RPC_PROBE_FAIL][${url}][MSG:${err?.message || err}]`);
                 continue;
             }
         }
-        throw new Error(`All RPC providers failed during getFirstHealthyClient for ${this.payway}`);
+        throw new Error(`All RPC providers failed during getFirstHealthyClient for ${this.payway}: ${lastErr?.message || lastErr}`);
     }
 
     protected convertToBaseUnit(amount: string, decimals: number): bigint {

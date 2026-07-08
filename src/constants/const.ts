@@ -331,6 +331,7 @@ export const Const = {
         'network error',
         'network down',
         'invalid json rpc',
+        'version of json-rpc', // drpc.org intermittently answers -32006 under load; treat as switchable (CN2-3910)
         '503 service unavailable',
         '502 bad gateway',
         'bad gateway',

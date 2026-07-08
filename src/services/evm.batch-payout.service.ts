@@ -184,7 +184,7 @@ export class EvmBatchPayoutService extends BaseEvmService {
         requestId?: string,
         currency?: string
     ): Promise<string> {
-        const client = this.getFirstHealthyClient();
+        const client = await this.getFirstHealthyClient();
         const sender = this.account.address;
         const estimatedGas = await client.estimateGas({
             account: this.account,
@@ -262,7 +262,7 @@ export class EvmBatchPayoutService extends BaseEvmService {
         requestId?: string
     ): Promise<string> {
         const logCurrency = currency || 'BATCH';
-        const pClient = this.getFirstHealthyClient();
+        const pClient = await this.getFirstHealthyClient();
 
         const tokenMap = await this.resolveTokenMapping(pClient, tokenTransfers);
         await this.checkAndApproveTokens(pClient, tokenMap, requestId);
