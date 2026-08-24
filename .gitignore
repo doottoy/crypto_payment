@@ -5,3 +5,12 @@
 /src/__tests__/test-data/*
 !src/__tests__/test-data/.gitkeep
 /.idea/
+
+# Local-only landing / docs / design notes (not part of the service)
+/pay-landing.html
+/pay-landing-v2.html
+/pay-docs.html
+/token-constructor-design.md
+/stellar-notes.md
+/stellar-testnet-keys.local.json
+/stellar-bootstrap.local.mjs

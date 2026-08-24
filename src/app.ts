@@ -18,6 +18,10 @@ import { TronMultiPayoutService } from './services/tron.multi-payout.service';
 /* Interface imports */
 import { SolanaPayoutRequestBody } from './interfaces/solana.payout.interface';
 import { SolanaMultiPayoutService } from './services/solana.multi-payout.service';
+import { StellarPayoutService } from './services/stellar.payout.service';
+import { StellarMultiPayoutService } from './services/stellar.multi-payout.service';
+import { StellarPayoutRequestBody, StellarMultiPayoutRequestBody } from './interfaces/stellar.payout.interface';
+import { StellarPayoutError } from './utils/stellar';
 import { LtcPayoutRequestBody, LtcSendManyPayoutRequestBody } from './interfaces/ltc.payout.interface';
 import { MultiPayoutRequestBody, PayoutRequestBody, BatchPayoutRequestBody, TronCurrentPayoutData, TronLegacyPayoutRequestBody, TronNormalizedPayload } from './interfaces/payout.interface';
 import { IdempotencyConflictError, requestIdRegistry } from './utils/idempotency';
@@ -35,6 +39,11 @@ app.use(express.json());
 function handleRouteError(error: unknown, res: Response, next: NextFunction): void {
     if (error instanceof IdempotencyConflictError) {
         res.status(error.statusCode).json({ error: error.message });
+        return;
+    }
+
+    if (error instanceof StellarPayoutError) {
+        res.status(error.statusCode).json({ error: error.message, code: error.code });
         return;
     }
 
@@ -258,6 +267,77 @@ app.post('/solana/create_token_account', async (req: Request, res: Response, nex
     } catch (error) {
         // Pass the error to the global error handler
         next(error);
+    }
+});
+
+/* Endpoint for processing single Stellar payout transactions (XLM or issued assets) */
+app.post('/payout/stellar', async (req: Request, res: Response, next: NextFunction) => {
+    // Destructure the request body to extract payout details
+    const {
+        payway,
+        private_key,
+        currency,
+        payee_address,
+        amount,
+        asset_code,
+        asset_issuer,
+        contract,
+        memo,
+        memo_type,
+        request_id
+    }: StellarPayoutRequestBody['data'] = req.body.data;
+
+    try {
+        const txHash = await requestIdRegistry.run('payout/stellar', request_id, req.body.data, async () => {
+            const stellarService = new StellarPayoutService(payway, private_key);
+            await stellarService.init();
+            return stellarService.sendTransaction(payee_address, amount, currency, {
+                assetCode: asset_code,
+                assetIssuer: asset_issuer,
+                contract,
+                memo,
+                memoType: memo_type,
+                requestId: request_id
+            });
+        });
+        res.json({ tx_id: txHash });
+    } catch (error) {
+        handleRouteError(error, res, next);
+    }
+});
+
+/* Endpoint for processing multi-send Stellar transactions (up to 100 payments in one atomic tx) */
+app.post('/payout/stellar/multi_send', async (req: Request, res: Response, next: NextFunction) => {
+    // Destructure the request body to extract multi-send payout details
+    const {
+        payway,
+        private_key,
+        currency,
+        recipients,
+        asset_code,
+        asset_issuer,
+        contract,
+        memo,
+        memo_type,
+        request_id
+    }: StellarMultiPayoutRequestBody['data'] = req.body.data;
+
+    try {
+        const txHash = await requestIdRegistry.run('payout/stellar/multi_send', request_id, req.body.data, async () => {
+            const stellarMultiService = new StellarMultiPayoutService(payway, private_key);
+            await stellarMultiService.init();
+            return stellarMultiService.multiSend(recipients, currency, {
+                assetCode: asset_code,
+                assetIssuer: asset_issuer,
+                contract,
+                memo,
+                memoType: memo_type,
+                requestId: request_id
+            });
+        });
+        res.json({ tx_id: txHash });
+    } catch (error) {
+        handleRouteError(error, res, next);
     }
 });
 

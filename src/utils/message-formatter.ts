@@ -285,6 +285,70 @@ function formatErrorTronMultiSendTransaction(currency: string, error: any, reque
 }
 
 /**
+ * Formats a success message for a standard Stellar transaction.
+ * @param amount - The amount to transfer
+ * @param addressSender - Address sender
+ * @param currency - The currency involved in the transaction.
+ * @param transaction - The transaction hash.
+ * @returns A formatted success message string.
+ */
+function formatSuccessStellarTransaction(amount: string, addressSender: string, currency: string, transaction: string, requestId?: string): string {
+    // Return a formatted success message
+    const message = `⚙️ Type: Stellar transaction
+⏰ Time: [${new Date().toLocaleString()}]
+💰 Amount: ${amount}
+💸 Currency: ${currency}
+👤 Address sender: ${addressSender}
+📜 Transaction hash: ${transaction}
+🔍 View in explorer: ${Const.TESTNET_EXPLORER.STELLAR}${transaction}`;
+    return appendRequestId(message, requestId);
+}
+
+/**
+ * Formats an error message for Stellar transaction.
+ * @param currency - The currency involved in the transaction.
+ * @param error - The error description.
+ * @returns A formatted error message string.
+ */
+function formatErrorStellar(currency: string, error: any, requestId?: string): string {
+    // Return a formatted error message
+    const message = `❌ Type: Stellar Error
+💸 Currency: ${currency}
+❗ Error: ${error || 'Unknown error'}`;
+    return appendRequestId(message, requestId);
+}
+
+/**
+ * Formats a success message for a Stellar multi send transaction.
+ * @param currency - The currency involved in the transaction.
+ * @param transaction - The transaction hash.
+ * @returns A formatted success message string.
+ */
+function formatSuccessStellarMultiSendTransaction(currency: string, transaction: string, requestId?: string): string {
+    // Return a formatted success message
+    const message = `⚙️ Type: Stellar Multi Send Transaction
+⏰ Time: [${new Date().toLocaleString()}]
+💸 Currency: ${currency}
+📜 Transaction hash: ${transaction}
+🔍 View in explorer: ${Const.TESTNET_EXPLORER.STELLAR}${transaction}`;
+    return appendRequestId(message, requestId);
+}
+
+/**
+ * Formats an error message for a Stellar multi send transaction.
+ * @param currency - The currency involved in the transaction.
+ * @param error - The error description.
+ * @returns A formatted error message string.
+ */
+function formatErrorStellarMultiSendTransaction(currency: string, error: any, requestId?: string): string {
+    // Return a formatted error message
+    const message = `❌ Type: Stellar Multi Send Error
+💸 Currency: ${currency}
+❗ Error: ${error || 'Unknown error'}`;
+    return appendRequestId(message, requestId);
+}
+
+/**
  * Formats a success message for a standard Solana transaction.
  * @param account - The created token account
  * @param owner - The token account owner
@@ -305,6 +369,10 @@ export const notifierMessage = {
     formatErrorLTC,
     formatErrorTron,
     formatErrorSolana,
+    formatErrorStellar,
+    formatSuccessStellarTransaction,
+    formatErrorStellarMultiSendTransaction,
+    formatSuccessStellarMultiSendTransaction,
     formatErrorMultiSend,
     formatSuccessMultiSend,
     formatErrorMultiSendLTC,

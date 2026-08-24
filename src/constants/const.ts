@@ -85,6 +85,40 @@ export const Const = {
     TRON_NILE: 'https://nile.trongrid.io',
     AMOY_POLYGON: 'https://polygon-amoy.g.alchemy.com/public',
 
+    // --- Stellar (testnet) ---
+
+    // Horizon API endpoint
+    STELLAR_HORIZON: 'https://horizon-testnet.stellar.org',
+
+    // Network passphrase is part of every signature (Stellar's analogue of chainId).
+    // Mainnet value would be 'Public Global Stellar Network ; September 2015'.
+    STELLAR_NETWORK_PASSPHRASE: 'Test SDF Network ; September 2015',
+
+    // Testnet faucet (creates & funds accounts; cannot top up existing ones)
+    STELLAR_FRIENDBOT: 'https://friendbot.stellar.org',
+
+    // Max fee bid per operation in stroops (1 XLM = 10^7 stroops).
+    // 100 is the network base fee; the bid only matters under surge pricing.
+    STELLAR_BASE_FEE: '100',
+
+    // Timebounds: after this many seconds an unsubmitted tx is dead for good,
+    // so a rebuild+resubmit can never double-spend.
+    STELLAR_TX_TIMEOUT_SEC: 120,
+
+    // Protocol limit of operations per transaction
+    STELLAR_MAX_OPS_PER_TX: 100,
+
+    // When a submit reply is lost (Horizon 504, dropped socket) the transaction
+    // may still be applied, so its hash is polled until the timebounds expire.
+    STELLAR_SUBMIT_POLL_INTERVAL_MS: 2000,
+    STELLAR_SUBMIT_RESOLVE_GRACE_MS: 10000,
+
+    // Minimum starting balance when auto-creating a destination account (2 base reserves)
+    STELLAR_MIN_CREATE_ACCOUNT_XLM: '1',
+
+    // Supported Stellar payways
+    STELLAR_PAYWAY: ['stellar', 'xlm'],
+
     // Supported ETH payways
     ETH_PAYWAY: ['eth', 'erc20', 'ethereum'],
 
@@ -295,7 +329,8 @@ export const Const = {
         SOLANA: 'https://solscan.io/tx/',
         SOLANA_ADDRESS: 'https://explorer.solana.com/address/',
         NILE_TRON: 'https://nile.tronscan.org/#/transaction/',
-        POLYGON: 'https://amoy.polygonscan.com/tx/'
+        POLYGON: 'https://amoy.polygonscan.com/tx/',
+        STELLAR: 'https://stellar.expert/explorer/testnet/tx/'
     },
 
     // Decimals method

@@ -2,7 +2,7 @@
 
 [![CI/CD Pipeline](https://github.com/doottoy/crypto_payment/actions/workflows/depoly.yml/badge.svg)](https://github.com/doottoy/crypto_payment/actions/workflows/depoly.yml)
 
-API service for crypto payouts across EVM (ETH Sepolia, Base Sepolia, Arbitrum Sepolia, BSC testnet, Polygon Amoy), Litecoin Testnet, Solana devnet (SOL & SPL/Token-2022), and Tron Nile (TRX/TRC20). Handles signing, fee selection, RPC failover, and Telegram alerts.
+API service for crypto payouts across EVM (ETH Sepolia, Base Sepolia, Arbitrum Sepolia, BSC testnet, Polygon Amoy), Litecoin Testnet, Solana devnet (SOL & SPL/Token-2022), Tron Nile (TRX/TRC20), and Stellar testnet (XLM & issued assets). Handles signing, fee selection, RPC failover, and Telegram alerts.
 
 ## What you'll get
 - Single payouts and batched multi-send per chain.
@@ -16,6 +16,7 @@ API service for crypto payouts across EVM (ETH Sepolia, Base Sepolia, Arbitrum S
 - Litecoin: Litecoin Testnet
 - Solana: devnet (SOL, SPL, Token-2022)
 - Tron: Nile (TRX, TRC20)
+- Stellar: testnet (XLM, issued assets such as USDC)
 
 ## Prerequisites
 - Node.js 18+
@@ -45,6 +46,13 @@ AUTOMATION_SERVICE_PRIVATE_KEY=...
 AUTOMATION_SERVICE_EMAIL=...
 AUTOMATION_GOOGLE_TOKEN=...
 AUTOMATION_SERVICE_SCOPES=...
+
+# Stellar lazy self-heal (optional, TESTNET ONLY): when enabled, a sender account
+# wiped by the quarterly testnet reset is re-funded via Friendbot, its trustline
+# re-opened, and (if STELLAR_ISSUER_SECRET matches the asset issuer) the missing
+# test-token balance re-minted — transparently, during the payout request.
+STELLAR_AUTO_HEAL=true
+STELLAR_ISSUER_SECRET=S...
 ```
 
 3) Build and run
@@ -60,6 +68,7 @@ npm run app:start   # PORT defaults to 3000
 | Litecoin                 | `POST /payout/ltc`          | `POST /payout/ltc/multi_send`   | -                               |
 | Solana (SOL/SPL/2022)    | `POST /payout/solana`       | `POST /payout/solana/multi_send`| -                               |
 | Tron (TRX/TRC20)         | `POST /payout/tron`         | `POST /payout/tron/multi_send`  | -                               |
+| Stellar (XLM/assets)     | `POST /payout/stellar`      | `POST /payout/stellar/multi_send`| -                              |
 | Bridge ETH (L1→L2)       | `POST /bridge/eth`          | -                               | -                               |
 
 All endpoints respond with:
@@ -233,6 +242,56 @@ For TRC20, set `payway` to `trc20`, provide `contract`, and set `currency` accor
 }
 ```
 `token_contract` is required for TRC20 multi-send; omit for TRX.
+
+### Stellar (single)
+`POST /payout/stellar`
+```json
+{
+  "data": {
+    "payway": "stellar",
+    "payee_address": "G...",
+    "amount": "10.5",
+    "asset_code": "USDC",
+    "asset_issuer": "G...",
+    "memo": "order-1001",
+    "memo_type": "text",
+    "currency": "USDC",
+    "private_key": "S...",
+    "request_id": "uuid-or-stable-client-id"
+  }
+}
+```
+- Omit `asset_code`/`asset_issuer` to send native XLM. A Stellar asset is identified by the **pair** (code, issuer) — the code alone is not unique. `contract: "CODE:ISSUER"` is accepted as an alternative single-field form.
+- Amounts are decimal strings with at most **7 decimal places** (protocol-wide precision).
+- The destination is pre-flight checked: it must exist on the ledger and (for issued assets) have an open trustline — otherwise a typed `400` (`destination_account_not_found`, `destination_no_trustline`, `destination_trustline_full`) is returned before any fee is spent. A missing destination for a **native XLM** payout of >= 1 XLM is auto-created via `createAccount`.
+- `memo` (`memo_type`: `text` | `id`) is required by most exchanges to attribute deposits; payouts without a memo are checked against SEP-29 and rejected with `destination_requires_memo` when the destination demands one. An unrecognised `memo_type` is rejected (`invalid_memo_type`) rather than silently sent as a text memo.
+- Finality is a single ledger (~5s): the returned `tx_id` is already final, there is no receipt polling.
+- Muxed destinations (`M...`) are supported.
+- Submissions are **serialized per sender account** (a Stellar sequence number must be exactly current+1, and concurrent identical payouts would otherwise build the same transaction and settle as one). Concurrency across *different* senders is unaffected. The queue is in-memory, so it serializes within one process instance — same caveat as the EVM nonce allocator.
+- If Horizon never returns a verdict (504, dropped socket), the transaction hash is polled until its timebounds expire instead of reporting a failure a retry would double-pay: `200` if it landed, `503 submission_expired` if it provably did not (safe to retry), `502 submission_indeterminate` if Horizon stayed unreachable (reconcile the hash before resubmitting).
+
+### Stellar (multi)
+`POST /payout/stellar/multi_send`
+```json
+{
+  "data": {
+    "payway": "stellar",
+    "recipients": [
+      { "address": "G...", "amount": "10" },
+      { "address": "G...", "amount": "5" }
+    ],
+    "asset_code": "USDC",
+    "asset_issuer": "G...",
+    "memo": "batch-42",
+    "currency": "USDC",
+    "private_key": "S...",
+    "request_id": "uuid-or-stable-client-id"
+  }
+}
+```
+- No multi-send contract is needed: a Stellar transaction natively carries up to **100 operations executed atomically** (all or nothing).
+- Every recipient is pre-flight validated; an invalid batch is rejected with the **full per-recipient problem list** in one round-trip (`invalid_recipients`), and nothing is paid out.
+- Protocol constraint: the memo is **per transaction**, shared by all recipients. Payouts to exchange deposit addresses that need individual memos must go through the single-payout endpoint.
 
 ### Bridge (native ETH, L1 → L2)
 `POST /bridge/eth`
