@@ -332,6 +332,7 @@ export const Const = {
         'network down',
         'invalid json rpc',
         'version of json-rpc', // drpc.org intermittently answers -32006 under load; treat as switchable (CN2-3910)
+        'no available upstreams', // drpc.org on Base Sepolia routes pending-tag calls and eth_sendRawTransaction to flashblocks upstreams only, none on the free plan
         '503 service unavailable',
         '502 bad gateway',
         'bad gateway',

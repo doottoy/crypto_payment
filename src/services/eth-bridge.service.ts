@@ -4,7 +4,7 @@ import { createPublicClient, http, encodeFunctionData, parseEther, keccak256, ty
 
 /* Internal dependencies */
 import { logger } from '../utils/logger';
-import { isEvmNetworkError } from '../utils/evm';
+import { isEvmNetworkError, isEvmProviderError } from '../utils/evm';
 import { nonceAllocator, type NonceLease } from '../utils/nonce-allocator';
 
 /* Constants */
@@ -198,7 +198,8 @@ export class EthBridgeService extends BaseEvmService {
             } catch (err: any) {
                 lastErr = err;
                 logger.error('BRIDGE_PREP', `❌[PREPARE_FAILED][DEST:${destination}][MSG:${err?.message || err?.toString?.() || String(err)}]`);
-                if (!isEvmNetworkError(err)) {
+                // Nothing is signed or broadcast yet, so a provider refusing the request (not the tx) is safe to fail over
+                if (!isEvmNetworkError(err) && !isEvmProviderError(err)) {
                     throw err;
                 }
                 logger.warn('BRIDGE_PREP', '🔄[PREPARE_RETRY][NEXT_PROVIDER]');

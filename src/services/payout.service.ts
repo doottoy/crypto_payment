@@ -4,9 +4,9 @@ import { createPublicClient, Address, Hex, encodeFunctionData, http, keccak256, 
 
 /* Internal dependencies */
 import { logger } from '../utils/logger';
-import { getChainForPayway, isEvmNetworkError } from '../utils/evm';
 import { nonceAllocator, type NonceLease } from '../utils/nonce-allocator';
 import { getEvmRpcUrlsForPayway, EVMTransactionLogger } from '../utils/modules';
+import { getChainForPayway, isEvmNetworkError, isEvmProviderError } from '../utils/evm';
 
 /* Constants */
 import { Const } from '../constants/const';
@@ -177,7 +177,8 @@ export class PayoutService extends BaseEvmService {
             } catch (err: any) {
                 lastErr = err;
                 logger.error('TX_PREP', `❌[PREPARE_FAILED][MSG:${err?.message || err?.toString?.() || String(err)}]`);
-                if (!isEvmNetworkError(err)) {
+                // Nothing is signed or broadcast yet, so a provider refusing the request (not the tx) is safe to fail over
+                if (!isEvmNetworkError(err) && !isEvmProviderError(err)) {
                     throw err;
                 }
                 logger.warn('TX_PREP', '🔄[PREPARE_RETRY][NEXT_PROVIDER]');

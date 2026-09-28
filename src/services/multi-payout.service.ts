@@ -4,10 +4,10 @@ import { Address, Hex, createPublicClient, encodeFunctionData, http, keccak256, 
 
 /* Internal dependencies */
 import { logger } from '../utils/logger';
-import { isEvmNetworkError } from '../utils/evm';
 import { BaseEvmService } from './base.evm.service';
 import { EVMTransactionLogger } from '../utils/modules';
 import { Recipient } from '../interfaces/payout.interface';
+import { isEvmNetworkError, isEvmProviderError } from '../utils/evm';
 
 /* Constants */
 import { Const } from '../constants/const';
@@ -179,7 +179,8 @@ export class MultiPayoutService extends BaseEvmService {
             } catch (err: any) {
                 lastErr = err;
                 logger.error('MULTI_PREP', `❌[PREPARE_FAILED][${url}][MSG:${err?.message || err}]`);
-                if (!isEvmNetworkError(err)) throw err;
+                // Nothing is signed or broadcast yet, so a provider refusing the request (not the tx) is safe to fail over
+                if (!isEvmNetworkError(err) && !isEvmProviderError(err)) throw err;
                 logger.warn('MULTI_PREP', '🔄[PREPARE_RETRY][NEXT_PROVIDER]');
             }
         }
