@@ -3,7 +3,7 @@ import { Address, Hex, createPublicClient, encodeFunctionData, http, keccak256, 
 
 /* Internal dependencies */
 import { logger } from '../utils/logger';
-import { isEvmNetworkError } from '../utils/evm';
+import { assertEvmReceiptSuccess, isEvmNetworkError } from '../utils/evm';
 import { EVMTransactionLogger } from '../utils/modules';
 import { NativeTransfer, TokenTransfer } from '../interfaces/payout.interface';
 
@@ -90,6 +90,7 @@ export class EvmBatchPayoutService extends BaseEvmService {
 
     private waitForReceiptInBackground(
         hash: Hex,
+        rawTx: Hex,
         via: string,
         currency: string,
         requestId?: string
@@ -101,6 +102,7 @@ export class EvmBatchPayoutService extends BaseEvmService {
         void (async () => {
             try {
                 const receipt = await client.waitForTransactionReceipt({ hash });
+                assertEvmReceiptSuccess(receipt, rawTx);
                 await this.logSuccessfulTransaction(
                     { txHash: receipt.transactionHash, receipt, via },
                     currency,
@@ -223,7 +225,7 @@ export class EvmBatchPayoutService extends BaseEvmService {
                     );
                 } else if (!waitForReceipt && currency && context === 'BATCH_SEND') {
                     this.logTransactionSubmitted(res.txHash, res.via, requestId);
-                    this.waitForReceiptInBackground(res.txHash, res.via, currency, requestId);
+                    this.waitForReceiptInBackground(res.txHash, rawTx, res.via, currency, requestId);
                 }
                 return res.txHash;
             } catch (err: any) {

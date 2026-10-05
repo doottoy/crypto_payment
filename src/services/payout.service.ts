@@ -6,7 +6,7 @@ import { createPublicClient, Address, Hex, encodeFunctionData, http, keccak256, 
 import { logger } from '../utils/logger';
 import { nonceAllocator, type NonceLease } from '../utils/nonce-allocator';
 import { getEvmRpcUrlsForPayway, EVMTransactionLogger } from '../utils/modules';
-import { getChainForPayway, isEvmNetworkError, isEvmProviderError } from '../utils/evm';
+import { assertEvmReceiptSuccess, getChainForPayway, isEvmNetworkError, isEvmProviderError } from '../utils/evm';
 
 /* Constants */
 import { Const } from '../constants/const';
@@ -276,6 +276,7 @@ export class PayoutService extends BaseEvmService {
     private waitForReceiptInBackground(
         client: PublicClient,
         hash: Hex,
+        rawTx: Hex,
         sender: Hex,
         url: string,
         currency: string,
@@ -286,6 +287,7 @@ export class PayoutService extends BaseEvmService {
         void (async () => {
             try {
                 const receipt = await client.waitForTransactionReceipt({ hash });
+                assertEvmReceiptSuccess(receipt, rawTx);
                 const duration = Date.now() - start;
                 await this.logSuccessfulTransaction(
                     { hash: receipt.transactionHash, receipt },
@@ -340,6 +342,8 @@ export class PayoutService extends BaseEvmService {
                     const result = await this.sendViaProvider(client, rawTx, url, waitForReceipt, requestId);
                     const duration = Date.now() - start;
                     if (waitForReceipt) {
+                        // A revert is final: the catch below logs it and rethrows, it is never retried on another provider
+                        assertEvmReceiptSuccess(result.receipt, rawTx);
                         await this.logSuccessfulTransaction(
                             { hash: result.hash, receipt: result.receipt as any },
                             sender,
@@ -350,7 +354,7 @@ export class PayoutService extends BaseEvmService {
                         );
                     } else {
                         this.logTransactionSubmitted(result.hash, url, requestId);
-                        this.waitForReceiptInBackground(client, result.hash, sender, url, currency, start, chainId, requestId);
+                        this.waitForReceiptInBackground(client, result.hash, rawTx, sender, url, currency, start, chainId, requestId);
                     }
 
                     success = true;
