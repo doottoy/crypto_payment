@@ -41,9 +41,10 @@ jobs:
       - name: Deploy to test server
         run: |
           ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SERVER_IP }} << 'EOF'
+            set -e
             cd ~/crypto_payment
             git pull origin main
-            docker compose down
+            # builds while the old container keeps serving, then swaps it; a failed build leaves the old one running
             docker compose up --build -d
           EOF
 
