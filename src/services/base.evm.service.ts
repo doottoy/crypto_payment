@@ -4,7 +4,7 @@ import { Address, Hex, createPublicClient, http, keccak256, parseUnits, type Pub
 
 /* Internal dependencies */
 import { logger } from '../utils/logger';
-import { getChainForPayway, isEvmAlreadyKnownError, isEvmNetworkError } from '../utils/evm';
+import { assertEvmReceiptSuccess, getChainForPayway, isEvmAlreadyKnownError, isEvmNetworkError } from '../utils/evm';
 import { getEvmRpcUrlsForPayway, EVMTransactionLogger } from '../utils/modules';
 
 /* Constants */
@@ -267,7 +267,21 @@ export abstract class BaseEvmService {
         return null;
     }
 
+    /**
+     * Broadcasts the signed tx over the provider pool. When waiting for the receipt, a mined-but-reverted tx
+     * throws EvmTransactionRevertedError instead of coming back as a success.
+     */
     protected async fanoutSend(
+        rawTx: Hex,
+        waitForReceipt: boolean,
+        requestId?: string
+    ): Promise<{ txHash: Hex; receipt?: any; via: string }> {
+        const sent = await this.broadcastToProviders(rawTx, waitForReceipt, requestId);
+        assertEvmReceiptSuccess(sent.receipt, rawTx);
+        return sent;
+    }
+
+    private async broadcastToProviders(
         rawTx: Hex,
         waitForReceipt: boolean,
         requestId?: string

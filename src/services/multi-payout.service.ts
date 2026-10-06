@@ -7,7 +7,7 @@ import { logger } from '../utils/logger';
 import { BaseEvmService } from './base.evm.service';
 import { EVMTransactionLogger } from '../utils/modules';
 import { Recipient } from '../interfaces/payout.interface';
-import { isEvmNetworkError, isEvmProviderError } from '../utils/evm';
+import { assertEvmReceiptSuccess, isEvmNetworkError, isEvmProviderError } from '../utils/evm';
 
 /* Constants */
 import { Const } from '../constants/const';
@@ -229,6 +229,7 @@ export class MultiPayoutService extends BaseEvmService {
      */
     private waitForReceiptInBackground(
         hash: Hex,
+        rawTx: Hex,
         via: string,
         currency: string,
         requestId?: string
@@ -240,6 +241,7 @@ export class MultiPayoutService extends BaseEvmService {
         void (async () => {
             try {
                 const receipt = await client.waitForTransactionReceipt({ hash });
+                assertEvmReceiptSuccess(receipt, rawTx);
                 await this.logSuccessfulTransaction(
                     { txHash: receipt.transactionHash, receipt, via },
                     currency,
@@ -283,7 +285,7 @@ export class MultiPayoutService extends BaseEvmService {
                     );
                 } else {
                     this.logTransactionSubmitted(res.txHash, res.via, requestId);
-                    this.waitForReceiptInBackground(res.txHash, res.via, currency, requestId);
+                    this.waitForReceiptInBackground(res.txHash, rawTx, res.via, currency, requestId);
                 }
                 return res.txHash;
             } catch (err: any) {

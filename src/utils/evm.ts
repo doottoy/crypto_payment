@@ -1,14 +1,17 @@
 /* External dependencies */
 import { arbitrumSepolia, baseSepolia, bscTestnet, polygonAmoy, sepolia, type Chain } from 'viem/chains';
 import {
+    type Hex,
     TimeoutError,
     RpcRequestError,
     HttpRequestError,
+    parseTransaction,
     FeeCapTooLowError,
     NonceTooHighError,
     SocketClosedError,
     FeeCapTooHighError,
     NonceMaxValueError,
+    type TransactionReceipt,
     InvalidAddressError,
     TipAboveFeeCapError,
     WebSocketRequestError,
@@ -118,4 +121,38 @@ export function isEvmAlreadyKnownError(err: any): boolean {
         'known transaction',
         'tx already exists'
     ].some((sub) => msg.includes(sub));
+}
+
+/**
+ * A mined transaction can still have failed (status = reverted, e.g. out of gas): the nonce and the gas are spent but
+ * no funds moved, so it must never be reported as a successful payout. The verdict is final - neither another provider
+ * nor a re-signed replacement (its nonce is already spent) can change it.
+ * Fields are strings: the notifier serialises EVM errors with JSON.stringify, which throws on bigint.
+ */
+export class EvmTransactionRevertedError extends Error {
+    readonly shortMessage = 'Transaction was mined but reverted - funds were not transferred';
+    readonly txHash: Hex;
+    readonly blockNumber: string;
+    readonly gasUsed: string;
+    readonly gasLimit?: string;
+
+    constructor(receipt: TransactionReceipt, gasLimit?: bigint) {
+        const gas = gasLimit === undefined ? `${receipt.gasUsed}` : `${receipt.gasUsed} of ${gasLimit}`;
+        super(`Transaction ${receipt.transactionHash} reverted on-chain in block ${receipt.blockNumber} (gas used ${gas}) - funds were not transferred`);
+        this.name = 'EvmTransactionRevertedError';
+        this.txHash = receipt.transactionHash;
+        this.blockNumber = receipt.blockNumber.toString();
+        this.gasUsed = receipt.gasUsed.toString();
+        this.gasLimit = gasLimit?.toString();
+    }
+}
+
+/**
+ * Throws EvmTransactionRevertedError when the receipt reports a reverted transaction; no receipt (not waited for) passes.
+ * The signed `rawTx` only adds its gas limit to the error, so an out-of-gas revert (gas used = limit) is visible in the alert.
+ */
+export function assertEvmReceiptSuccess(receipt: TransactionReceipt | undefined, rawTx?: Hex): void {
+    if (receipt?.status !== 'reverted') return;
+
+    throw new EvmTransactionRevertedError(receipt, rawTx ? parseTransaction(rawTx).gas : undefined);
 }

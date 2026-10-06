@@ -43,35 +43,29 @@ export const Const = {
 
     EVM_RPC_PROVIDERS: {
         eth: [
-            'https://sepolia.drpc.org',
             'https://ethereum-sepolia-rpc.publicnode.com',
-            'https://eth-sepolia.g.alchemy.com/public',
             'https://sepolia.infura.io/v3/7a4583d0b3014189bbff7f24582fc5ea'
         ],
         bsc: [
             'https://bsc-testnet.drpc.org',
             'https://bsc-testnet.bnbchain.org',
             'https://bsc-testnet-rpc.publicnode.com',
-            'https://bnb-testnet.g.alchemy.com/public',
             'https://bsc-testnet.infura.io/v3/7a4583d0b3014189bbff7f24582fc5ea'
         ],
         arbitrum_eth: [
             'https://arbitrum-sepolia.drpc.org',
             'https://arbitrum-sepolia-rpc.publicnode.com',
-            'https://arb-sepolia.g.alchemy.com/public',
             'https://arbitrum-sepolia.infura.io/v3/7a4583d0b3014189bbff7f24582fc5ea'
         ],
         base_eth: [
             'https://base-sepolia.drpc.org',
             'https://sepolia.base.org',
             'https://base-sepolia-rpc.publicnode.com',
-            'https://base-sepolia.g.alchemy.com/public',
             'https://base-sepolia.infura.io/v3/7a4583d0b3014189bbff7f24582fc5ea'
         ],
         polygon_eth: [
             'https://polygon-amoy.drpc.org',
             'https://polygon-amoy-bor-rpc.publicnode.com',
-            'https://polygon-amoy.g.alchemy.com/public',
             'https://polygon-amoy.infura.io/v3/7a4583d0b3014189bbff7f24582fc5ea'
         ],
     } as Record<string, string[]>,
