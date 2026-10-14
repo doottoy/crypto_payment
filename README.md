@@ -6,9 +6,9 @@ API service for crypto payouts across EVM (ETH Sepolia, Base Sepolia, Arbitrum S
 
 ## Overview video
 
-https://github.com/user-attachments/assets/5392be5d-2ddc-405e-ab9f-7997ab7071d0
+https://github.com/user-attachments/assets/32003c83-d35a-4c6c-bdb8-25ae06ace65c
 
-A 2-minute walkthrough: single, multi-send and batch payouts, the Sepolia → L2 ETH bridge, Telegram alerts, RPC failover, receipt checks and idempotent EVM retries via `request_id`.
+A 2-minute overview: one HTTP API for payouts on EVM chains, Solana, Tron and Litecoin. It covers single, multi-send and batch payouts, the Sepolia → L2 ETH bridge, local signing, RPC failover, receipt checks, idempotent EVM retries via `request_id`, Telegram alerts and a one-container deploy.
 
 ## What you'll get
 - Single payouts and batched multi-send per chain.
