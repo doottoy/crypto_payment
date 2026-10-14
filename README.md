@@ -4,6 +4,12 @@
 
 API service for crypto payouts across EVM (ETH Sepolia, Base Sepolia, Arbitrum Sepolia, BSC testnet, Polygon Amoy), Litecoin Testnet, Solana devnet (SOL & SPL/Token-2022), and Tron Nile (TRX/TRC20). Handles signing, fee selection, RPC failover, and Telegram alerts.
 
+## Overview video
+
+https://github.com/user-attachments/assets/5392be5d-2ddc-405e-ab9f-7997ab7071d0
+
+A 2-minute walkthrough: single, multi-send and batch payouts, the Sepolia → L2 ETH bridge, Telegram alerts, RPC failover, receipt checks and idempotent EVM retries via `request_id`.
+
 ## What you'll get
 - Single payouts and batched multi-send per chain.
 - Telegram alerts with explorer links for success and errors.
