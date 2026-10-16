@@ -5,3 +5,4 @@
 /src/__tests__/test-data/*
 !src/__tests__/test-data/.gitkeep
 /.idea/
+/.eslintcache
