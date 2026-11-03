@@ -2,6 +2,7 @@
 import { arbitrumSepolia, baseSepolia, bscTestnet, polygonAmoy, sepolia, type Chain } from 'viem/chains';
 import {
     type Hex,
+    keccak256,
     TimeoutError,
     RpcRequestError,
     HttpRequestError,
@@ -155,4 +156,37 @@ export function assertEvmReceiptSuccess(receipt: TransactionReceipt | undefined,
     if (receipt?.status !== 'reverted') return;
 
     throw new EvmTransactionRevertedError(receipt, rawTx ? parseTransaction(rawTx).gas : undefined);
+}
+
+/**
+ * Another transaction, not signed for this request, was mined with the sender nonce of this one, so this one can never
+ * be mined and its payout did not happen. Re-signing on a fresh nonce cannot pay twice.
+ * Fields are strings and numbers: the notifier serialises EVM errors with JSON.stringify, which throws on bigint.
+ */
+export class EvmNonceTakenError extends Error {
+    readonly shortMessage = 'The nonce was used by a transaction this request did not sign - funds were not transferred';
+    readonly txHash: Hex;
+    readonly foreignTxHash: Hex;
+    readonly nonce: number;
+
+    constructor(txHash: Hex, foreignTxHash: Hex, nonce: number) {
+        super(`Nonce ${nonce} was used by transaction ${foreignTxHash}, which this request did not sign: transaction ${txHash} can never be mined, funds were not transferred`);
+        this.name = 'EvmNonceTakenError';
+        this.txHash = txHash;
+        this.foreignTxHash = foreignTxHash;
+        this.nonce = nonce;
+    }
+}
+
+/**
+ * Waiting by hash resolves with the receipt of whichever transaction took the sender nonce (viem replacement detection),
+ * so a receipt counts only when it is of the signed `rawTx` or of another hash signed for the same request (a fee bump).
+ * Any other receipt throws EvmNonceTakenError.
+ */
+export function assertOwnReceipt(receipt: TransactionReceipt, rawTx: Hex, ownHashes: ReadonlySet<Hex> = new Set()): void {
+    const minedHash = receipt.transactionHash.toLowerCase() as Hex;
+    const txHash = keccak256(rawTx);
+    if (minedHash === txHash || ownHashes.has(minedHash)) return;
+
+    throw new EvmNonceTakenError(txHash, receipt.transactionHash, parseTransaction(rawTx).nonce ?? 0);
 }

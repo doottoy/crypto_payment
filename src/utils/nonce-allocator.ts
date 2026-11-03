@@ -1,4 +1,8 @@
+/* External dependencies */
 import type { Address, PublicClient } from 'viem';
+
+/* Internal dependencies */
+import { logger } from './logger';
 
 type NonceLease = {
     nonce: number;
@@ -10,6 +14,23 @@ type NonceState = {
     inFlight: Set<number>;
     needsResync: boolean;
 };
+
+/* Pending nonce of the node, or undefined when a failed read falls back to the cached one */
+async function readPendingNonce(
+    client: PublicClient,
+    address: Address,
+    cached: number | undefined,
+    fallbackToCache: boolean
+): Promise<number | undefined> {
+    try {
+        return await client.getTransactionCount({ address, blockTag: 'pending' });
+    } catch (err: any) {
+        if (cached === undefined || !fallbackToCache) throw err;
+        // A transient RPC error must not fail a send the cached nonce can serve
+        logger.warn('NONCE', `⚠️[PENDING_READ_FAILED][${address}][USING_CACHE:${cached}][MSG:${err?.details || err?.shortMessage || err?.message || err}]`);
+        return undefined;
+    }
+}
 
 /**
  * In-memory nonce allocator for a single process instance
@@ -42,28 +63,40 @@ class InMemoryNonceAllocator {
         }
     }
 
-    async reserveNonce(client: PublicClient, address: Address, chainId: number): Promise<NonceLease> {
+    /**
+     * Reserves the larger of the cached next nonce and the pending nonce of the node: a higher pending nonce means the
+     * key sent outside this process, a lower one is a lagging node or our own nonces not broadcast yet.
+     * After a failed send with nothing in flight (resync) the pending nonce wins even when lower, closing unsent gaps.
+     * A failed pending read uses the cache when there is one and `fallbackToCache` allows it, otherwise it throws.
+     */
+    async reserveNonce(client: PublicClient, address: Address, chainId: number, fallbackToCache = true): Promise<NonceLease> {
         const key = this.key(chainId, address);
         return this.withLock(key, async () => {
             const state = this.states.get(key) || { inFlight: new Set<number>(), needsResync: false };
+            const pending = await readPendingNonce(client, address, state.nextNonce, fallbackToCache);
 
-            if (state.needsResync && state.inFlight.size === 0) {
-                state.nextNonce = await client.getTransactionCount({ address, blockTag: 'pending' });
+            if (pending !== undefined && state.needsResync && state.inFlight.size === 0) {
+                state.nextNonce = pending;
                 state.needsResync = false;
+            } else if (pending !== undefined) {
+                state.nextNonce = Math.max(state.nextNonce ?? pending, pending);
             }
 
-            if (state.nextNonce === undefined) {
-                state.nextNonce = await client.getTransactionCount({ address, blockTag: 'pending' });
-            }
-
-            const nonce = state.nextNonce;
-            state.nextNonce += 1;
+            // Set: either just read or the cache the failed read fell back to
+            const nonce = state.nextNonce as number;
+            state.nextNonce = nonce + 1;
             state.inFlight.add(nonce);
             this.states.set(key, state);
 
+            let released = false;
             return {
                 nonce,
-                release: (success: boolean) => this.releaseNonce(key, nonce, success)
+                release: async (success: boolean) => {
+                    // Only the first call counts: a repeated one must not drop the same nonce leased again since
+                    if (released) return;
+                    released = true;
+                    await this.releaseNonce(key, nonce, success);
+                }
             };
         });
     }

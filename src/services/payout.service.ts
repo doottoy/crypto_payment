@@ -6,7 +6,7 @@ import { createPublicClient, Address, Hex, encodeFunctionData, http, keccak256, 
 import { logger } from '../utils/logger';
 import { nonceAllocator, type NonceLease } from '../utils/nonce-allocator';
 import { getEvmRpcUrlsForPayway, EVMTransactionLogger } from '../utils/modules';
-import { assertEvmReceiptSuccess, getChainForPayway, isEvmNetworkError, isEvmProviderError } from '../utils/evm';
+import { assertEvmReceiptSuccess, EvmNonceTakenError, getChainForPayway, isEvmNetworkError, isEvmProviderError } from '../utils/evm';
 
 /* Constants */
 import { Const } from '../constants/const';
@@ -136,7 +136,7 @@ export class PayoutService extends BaseEvmService {
         amount: string,
         contract: string,
         currency: string
-    ): Promise<{ rawTx: Hex; sender: Hex; nonceLease: NonceLease; chainId: number }> {
+    ): Promise<{ rawTx: Hex; sender: Hex; nonceLease: NonceLease; chainId: number; tx: any }> {
         let lastErr;
         const chain = this.chain;
         const account = this.account;
@@ -164,12 +164,13 @@ export class PayoutService extends BaseEvmService {
                 const isTokenTransfer = Boolean(contract);
                 await this.estimateAndSetGas(client, tx, account.address, isTokenTransfer);
 
-                const nonceLease = await nonceAllocator.reserveNonce(client, account.address, chainId);
+                // A provider refusing the pending read is skipped like any other refusal, the last one may use the cache
+                const nonceLease = await nonceAllocator.reserveNonce(client, account.address, chainId, this.isLastProvider(url));
                 try {
                     tx.nonce = nonceLease.nonce;
 
                     const rawTx = await account.signTransaction(tx);
-                    return { rawTx, sender: account.address, nonceLease, chainId };
+                    return { rawTx, sender: account.address, nonceLease, chainId, tx };
                 } catch (err) {
                     await nonceLease.release(false);
                     throw err;
@@ -206,17 +207,19 @@ export class PayoutService extends BaseEvmService {
         rawTx: Hex,
         url: string,
         waitForReceipt: boolean,
-        requestId?: string
+        requestId?: string,
+        ownHashes: ReadonlySet<Hex> = new Set()
     ): Promise<{ hash: Hex; receipt?: any }> {
         try {
             const hash = await client.sendRawTransaction({ serializedTransaction: rawTx });
             if (waitForReceipt) {
-                const receipt = await client.waitForTransactionReceipt({ hash });
+                const receipt = await this.waitForOwnReceipt(client, hash, rawTx, ownHashes);
                 return { hash: receipt.transactionHash, receipt };
             }
             return { hash };
         } catch (error) {
-            const recovered = await this.recoverSubmittedTransaction(rawTx, waitForReceipt, url, error, requestId);
+            if (error instanceof EvmNonceTakenError) throw error;
+            const recovered = await this.recoverSubmittedTransaction(rawTx, waitForReceipt, url, error, requestId, ownHashes);
             if (recovered) {
                 return {
                     hash: recovered.txHash,
@@ -282,11 +285,12 @@ export class PayoutService extends BaseEvmService {
         currency: string,
         start: number,
         chainId: number,
+        ownHashes: ReadonlySet<Hex>,
         requestId?: string
     ): void {
         void (async () => {
             try {
-                const receipt = await client.waitForTransactionReceipt({ hash });
+                const receipt = await this.waitForOwnReceipt(client, hash, rawTx, ownHashes);
                 assertEvmReceiptSuccess(receipt, rawTx);
                 const duration = Date.now() - start;
                 await this.logSuccessfulTransaction(
@@ -321,7 +325,12 @@ export class PayoutService extends BaseEvmService {
     ): Promise<string> {
         let lastErr: any;
         const network = this.payway.toUpperCase();
-        const { rawTx, sender, nonceLease, chainId } = await this.prepareTxData(payeeAddress, amount, contract, currency);
+        const prepared = await this.prepareTxData(payeeAddress, amount, contract, currency);
+        const { sender, chainId, tx } = prepared;
+        let { rawTx, nonceLease } = prepared;
+        // Every hash signed for this payout: a receipt of any other tx means its nonce was taken
+        const ownHashes = new Set<Hex>([keccak256(rawTx)]);
+        let nonceRefreshes = 0;
 
         this.logTransactionPreparation(rawTx, requestId);
 
@@ -339,7 +348,7 @@ export class PayoutService extends BaseEvmService {
                 const start = Date.now();
 
                 try {
-                    const result = await this.sendViaProvider(client, rawTx, url, waitForReceipt, requestId);
+                    const result = await this.sendViaProvider(client, rawTx, url, waitForReceipt, requestId, ownHashes);
                     const duration = Date.now() - start;
                     if (waitForReceipt) {
                         // A revert is final: the catch below logs it and rethrows, it is never retried on another provider
@@ -354,7 +363,18 @@ export class PayoutService extends BaseEvmService {
                         );
                     } else {
                         this.logTransactionSubmitted(result.hash, url, requestId);
-                        this.waitForReceiptInBackground(client, result.hash, rawTx, sender, url, currency, start, chainId, requestId);
+                        this.waitForReceiptInBackground(
+                            client,
+                            result.hash,
+                            rawTx,
+                            sender,
+                            url,
+                            currency,
+                            start,
+                            chainId,
+                            ownHashes,
+                            requestId
+                        );
                     }
 
                     success = true;
@@ -362,6 +382,20 @@ export class PayoutService extends BaseEvmService {
                 } catch (err: any) {
                     const duration = Date.now() - start;
                     lastErr = err;
+
+                    if (err instanceof EvmNonceTakenError) {
+                        const freshLease = await this.refreshTakenNonce(nonceLease, nonceRefreshes, err, client, chainId, requestId);
+                        if (freshLease) {
+                            nonceLease = freshLease;
+                            nonceRefreshes += 1;
+                            rawTx = await this.account.signTransaction({ ...tx, nonce: nonceLease.nonce });
+                            ownHashes.add(keccak256(rawTx));
+                            this.logTransactionPreparation(rawTx, requestId);
+                            // The provider works: send the re-signed tx through it again
+                            i -= 1;
+                            continue;
+                        }
+                    }
 
                     await this.logTransactionError(err, url, currency, duration, requestId);
 
