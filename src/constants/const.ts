@@ -8,6 +8,9 @@ export const Const = {
     // Gas limit for multi-send transactions
     MULTI_SEND_GAS_LIMIT: 1000000,
 
+    // Fresh nonces one EVM send may take after transactions it did not sign used its nonce
+    EVM_NONCE_REFRESH_LIMIT: 3,
+
     // Tron fee limit
     TRON_FEE_LIMIT: 100000000,
 

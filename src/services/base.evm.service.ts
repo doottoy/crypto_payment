@@ -1,11 +1,12 @@
 /* External dependencies */
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
-import { Address, Hex, createPublicClient, http, keccak256, parseUnits, type PublicClient, type Chain } from 'viem';
+import { Address, Hex, createPublicClient, http, keccak256, parseUnits, type PublicClient, type Chain, type TransactionReceipt } from 'viem';
 
 /* Internal dependencies */
 import { logger } from '../utils/logger';
-import { assertEvmReceiptSuccess, getChainForPayway, isEvmAlreadyKnownError, isEvmNetworkError } from '../utils/evm';
+import { nonceAllocator, type NonceLease } from '../utils/nonce-allocator';
 import { getEvmRpcUrlsForPayway, EVMTransactionLogger } from '../utils/modules';
+import { assertEvmReceiptSuccess, assertOwnReceipt, EvmNonceTakenError, getChainForPayway, isEvmAlreadyKnownError, isEvmNetworkError } from '../utils/evm';
 
 /* Constants */
 import { Const } from '../constants/const';
@@ -35,6 +36,11 @@ export abstract class BaseEvmService {
         if (!this.rpcUrls.length) {
             throw new Error(`No RPC providers configured for payway = ${this.payway}`);
         }
+    }
+
+    /* Only the last provider of a fail-over loop may fall back to the cached nonce when its pending read fails */
+    protected isLastProvider(url: string): boolean {
+        return url === this.rpcUrls[this.rpcUrls.length - 1];
     }
 
     protected async getFirstHealthyClient(): Promise<PublicClient> {
@@ -203,12 +209,59 @@ export abstract class BaseEvmService {
         logger.info(network, `📨${reqInfo}[SUBMITTED][${url}][HASH:${hash}]`);
     }
 
+    /**
+     * Waits for the receipt of the signed tx. When another tx took its nonce, viem resolves with the receipt of that tx:
+     * it is returned only when signed for this request (`ownHashes`, every fee bump included), else EvmNonceTakenError.
+     */
+    protected async waitForOwnReceipt(
+        client: PublicClient,
+        hash: Hex,
+        rawTx: Hex,
+        ownHashes: ReadonlySet<Hex> = new Set()
+    ): Promise<TransactionReceipt> {
+        const receipt = await client.waitForTransactionReceipt({ hash });
+        assertOwnReceipt(receipt, rawTx, ownHashes);
+        if (receipt.transactionHash.toLowerCase() !== hash.toLowerCase()) {
+            logger.warn(this.payway.toUpperCase(), `⚠️[MINED_EARLIER_ATTEMPT][WAITED:${hash}][MINED:${receipt.transactionHash}]`);
+        }
+        return receipt;
+    }
+
+    /**
+     * Another tx used the nonce of the lease: gives it up (the allocator then re-reads the pending nonce once no lease of
+     * the sender is in flight) and reserves a fresh one to re-sign with. Resending cannot pay twice, as a tx whose nonce
+     * a mined tx used can never be mined. Returns null once Const.EVM_NONCE_REFRESH_LIMIT refreshes are spent.
+     */
+    protected async refreshTakenNonce(
+        lease: NonceLease,
+        refreshes: number,
+        error: EvmNonceTakenError,
+        client: PublicClient,
+        chainId: number,
+        requestId?: string
+    ): Promise<NonceLease | null> {
+        const network = this.payway.toUpperCase();
+        const reqInfo = requestId ? `[${requestId}]` : '';
+        const taken = `[NONCE_TAKEN][NONCE:${lease.nonce}][BY:${error.foreignTxHash}]`;
+
+        if (refreshes >= Const.EVM_NONCE_REFRESH_LIMIT) {
+            logger.warn(network, `⚠️${reqInfo}${taken}[GIVE_UP][REFRESHES:${refreshes}]`);
+            return null;
+        }
+
+        await lease.release(false);
+        const fresh = await nonceAllocator.reserveNonce(client, this.account.address, chainId);
+        logger.warn(network, `⚠️${reqInfo}${taken}[RESIGN][NEW_NONCE:${fresh.nonce}]`);
+        return fresh;
+    }
+
     protected async recoverSubmittedTransaction(
         rawTx: Hex,
         waitForReceipt: boolean,
         preferredUrl: string,
         error: any,
-        requestId?: string
+        requestId?: string,
+        ownHashes: ReadonlySet<Hex> = new Set()
     ): Promise<{ txHash: Hex; receipt?: any; via: string } | null> {
         if (!isEvmNetworkError(error) && !isEvmAlreadyKnownError(error)) {
             return null;
@@ -241,10 +294,12 @@ export abstract class BaseEvmService {
                     return { txHash, via: url };
                 }
 
-                const receipt = await client.waitForTransactionReceipt({ hash: txHash });
+                const receipt = await this.waitForOwnReceipt(client, txHash, rawTx, ownHashes);
                 logger.warn(network, `⚠️${reqInfo}[SEND_RECOVERED][${url}][MODE:wait_receipt][HASH:${receipt.transactionHash}]`);
                 return { txHash: receipt.transactionHash, receipt, via: url };
-            } catch {
+            } catch (err) {
+                // A taken nonce is final, no other strategy or provider can mine this tx
+                if (err instanceof EvmNonceTakenError) throw err;
                 // Continue with the next recovery strategy.
             }
 
@@ -255,10 +310,11 @@ export abstract class BaseEvmService {
                 }
 
                 try {
-                    const receipt = await client.waitForTransactionReceipt({ hash: txHash });
+                    const receipt = await this.waitForOwnReceipt(client, txHash, rawTx, ownHashes);
                     logger.warn(network, `⚠️${reqInfo}[SEND_RECOVERED][${url}][MODE:already_known_wait][HASH:${receipt.transactionHash}]`);
                     return { txHash: receipt.transactionHash, receipt, via: url };
-                } catch {
+                } catch (err) {
+                    if (err instanceof EvmNonceTakenError) throw err;
                     // Try the next provider.
                 }
             }
@@ -269,14 +325,16 @@ export abstract class BaseEvmService {
 
     /**
      * Broadcasts the signed tx over the provider pool. When waiting for the receipt, a mined-but-reverted tx
-     * throws EvmTransactionRevertedError instead of coming back as a success.
+     * throws EvmTransactionRevertedError instead of coming back as a success, and a receipt of a tx not in
+     * `ownHashes` (the hashes signed for this request) throws EvmNonceTakenError.
      */
     protected async fanoutSend(
         rawTx: Hex,
         waitForReceipt: boolean,
-        requestId?: string
+        requestId?: string,
+        ownHashes: ReadonlySet<Hex> = new Set()
     ): Promise<{ txHash: Hex; receipt?: any; via: string }> {
-        const sent = await this.broadcastToProviders(rawTx, waitForReceipt, requestId);
+        const sent = await this.broadcastToProviders(rawTx, waitForReceipt, requestId, ownHashes);
         assertEvmReceiptSuccess(sent.receipt, rawTx);
         return sent;
     }
@@ -284,24 +342,27 @@ export abstract class BaseEvmService {
     private async broadcastToProviders(
         rawTx: Hex,
         waitForReceipt: boolean,
-        requestId?: string
+        requestId?: string,
+        ownHashes: ReadonlySet<Hex> = new Set()
     ): Promise<{ txHash: Hex; receipt?: any; via: string }> {
         let lastErr: any;
         for (const url of this.rpcUrls) {
             const client = createPublicClient({
                 chain: this.chain,
                 transport: http(url, { timeout: 10000 })
-            });
+            }) as PublicClient;
             try {
                 const hash = await client.sendRawTransaction({ serializedTransaction: rawTx });
                 if (waitForReceipt) {
-                    const receipt = await client.waitForTransactionReceipt({ hash });
+                    const receipt = await this.waitForOwnReceipt(client, hash, rawTx, ownHashes);
                     return { txHash: receipt.transactionHash, receipt, via: url };
                 }
                 return { txHash: hash, via: url };
             } catch (err: any) {
+                // A taken nonce is final: another provider would only resend a tx that can never be mined
+                if (err instanceof EvmNonceTakenError) throw err;
                 lastErr = err;
-                const recovered = await this.recoverSubmittedTransaction(rawTx, waitForReceipt, url, err, requestId);
+                const recovered = await this.recoverSubmittedTransaction(rawTx, waitForReceipt, url, err, requestId, ownHashes);
                 if (recovered) {
                     return recovered;
                 }

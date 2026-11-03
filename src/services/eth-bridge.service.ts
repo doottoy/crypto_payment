@@ -4,8 +4,8 @@ import { createPublicClient, http, encodeFunctionData, parseEther, keccak256, ty
 
 /* Internal dependencies */
 import { logger } from '../utils/logger';
-import { isEvmNetworkError, isEvmProviderError } from '../utils/evm';
 import { nonceAllocator, type NonceLease } from '../utils/nonce-allocator';
+import { EvmNonceTakenError, isEvmNetworkError, isEvmProviderError } from '../utils/evm';
 
 /* Constants */
 import { Const } from '../constants/const';
@@ -164,7 +164,7 @@ export class EthBridgeService extends BaseEvmService {
         destination: BridgeDestination,
         amount: string,
         payeeAddress?: string
-    ): Promise<{ rawTx: Hex; sender: Hex; nonceLease: NonceLease; chainId: number }> {
+    ): Promise<{ rawTx: Hex; sender: Hex; nonceLease: NonceLease; chainId: number; tx: any; client: PublicClient }> {
         let lastErr: any;
         const account = this.account;
 
@@ -186,11 +186,12 @@ export class EthBridgeService extends BaseEvmService {
                 const estimatedGas = await client.estimateGas({ ...tx, account: account.address } as any);
                 tx.gas = (estimatedGas * 13n) / 10n; // +30% buffer for bridge entrypoints
 
-                const nonceLease = await nonceAllocator.reserveNonce(client, account.address, chainId);
+                // A provider refusing the pending read is skipped like any other refusal, the last one may use the cache
+                const nonceLease = await nonceAllocator.reserveNonce(client, account.address, chainId, this.isLastProvider(url));
                 try {
                     tx.nonce = nonceLease.nonce;
                     const rawTx = await account.signTransaction(tx);
-                    return { rawTx, sender: account.address, nonceLease, chainId };
+                    return { rawTx, sender: account.address, nonceLease, chainId, tx, client };
                 } catch (err) {
                     await nonceLease.release(false);
                     throw err;
@@ -223,15 +224,33 @@ export class EthBridgeService extends BaseEvmService {
         const label = `BRIDGE→${destination.toUpperCase()}`;
         const reqInfo = requestId ? `[${requestId}]` : '';
 
-        const { rawTx, sender, nonceLease } = await this.prepareDepositTx(destination, amount, payeeAddress);
+        const prepared = await this.prepareDepositTx(destination, amount, payeeAddress);
+        const { sender, chainId, tx, client } = prepared;
+        let { rawTx, nonceLease } = prepared;
+        // Every hash signed for this deposit: a receipt of any other tx means its nonce was taken
+        const ownHashes = new Set<Hex>([keccak256(rawTx)]);
         logger.info(label, `🧾${reqInfo}[PREPARED][HASH:${keccak256(rawTx)}][L2_RECIPIENT:${payeeAddress || sender}]`);
 
         let success = false;
         try {
-            const { txHash, via } = await this.fanoutSend(rawTx, waitForReceipt, requestId);
-            success = true;
-            logger.info(label, `✅${reqInfo}[L1_DEPOSIT_SENT][${via}][L1_TX:${txHash}]`);
-            return txHash;
+            for (let nonceRefreshes = 0; ; nonceRefreshes += 1) {
+                try {
+                    const { txHash, via } = await this.fanoutSend(rawTx, waitForReceipt, requestId, ownHashes);
+                    success = true;
+                    logger.info(label, `✅${reqInfo}[L1_DEPOSIT_SENT][${via}][L1_TX:${txHash}]`);
+                    return txHash;
+                } catch (err: any) {
+                    // Another tx used the nonce: re-sign on a fresh one and send again
+                    const freshLease = err instanceof EvmNonceTakenError
+                        ? await this.refreshTakenNonce(nonceLease, nonceRefreshes, err, client, chainId, requestId)
+                        : null;
+                    if (!freshLease) throw err;
+                    nonceLease = freshLease;
+                    rawTx = await this.account.signTransaction({ ...tx, nonce: nonceLease.nonce });
+                    ownHashes.add(keccak256(rawTx));
+                    logger.info(label, `🧾${reqInfo}[PREPARED][HASH:${keccak256(rawTx)}][L2_RECIPIENT:${payeeAddress || sender}]`);
+                }
+            }
         } catch (err: any) {
             logger.error(label, `❌${reqInfo}[FAILED][MSG:${err?.message || err?.toString?.() || String(err)}]`);
             throw err;

@@ -3,9 +3,10 @@ import { Address, Hex, createPublicClient, encodeFunctionData, http, keccak256, 
 
 /* Internal dependencies */
 import { logger } from '../utils/logger';
-import { assertEvmReceiptSuccess, isEvmNetworkError } from '../utils/evm';
 import { EVMTransactionLogger } from '../utils/modules';
+import { nonceAllocator } from '../utils/nonce-allocator';
 import { NativeTransfer, TokenTransfer } from '../interfaces/payout.interface';
+import { assertEvmReceiptSuccess, EvmNonceTakenError, isEvmNetworkError } from '../utils/evm';
 
 /* Constants */
 import { Const } from '../constants/const';
@@ -93,15 +94,18 @@ export class EvmBatchPayoutService extends BaseEvmService {
         rawTx: Hex,
         via: string,
         currency: string,
+        ownHashes: ReadonlySet<Hex>,
+        sender: Address,
+        chainId: number,
         requestId?: string
     ): void {
         const client = createPublicClient({
             chain: this.chain,
             transport: http(via, { timeout: 10000 })
-        });
+        }) as PublicClient;
         void (async () => {
             try {
-                const receipt = await client.waitForTransactionReceipt({ hash });
+                const receipt = await this.waitForOwnReceipt(client, hash, rawTx, ownHashes);
                 assertEvmReceiptSuccess(receipt, rawTx);
                 await this.logSuccessfulTransaction(
                     { txHash: receipt.transactionHash, receipt, via },
@@ -110,6 +114,9 @@ export class EvmBatchPayoutService extends BaseEvmService {
                 );
             } catch (error) {
                 await this.logTransactionError(error, currency, requestId);
+                const reqInfo = requestId ? `[${requestId}]` : '';
+                logger.warn(this.payway.toUpperCase(), `⚠️${reqInfo}[RECEIPT_WAIT_FAILED][ACTION:nonce_resync]`);
+                await nonceAllocator.markResync(sender, chainId);
             }
         })();
     }
@@ -197,63 +204,83 @@ export class EvmBatchPayoutService extends BaseEvmService {
         // Cap trims the buffer only - never go below the node's estimate (Arbitrum estimates include the L1 data component and can legitimately exceed the cap; below-estimate limit = guaranteed OOG revert)
         const gas = Math.max(Number(estimatedGas), Math.min(Number(estimatedGas) + 20000, Const.MULTI_SEND_GAS_LIMIT * 2));
 
-        const [nonce, chainId] = await Promise.all([
-            client.getTransactionCount({ address: sender, blockTag: 'pending' }),
-            client.getChainId()
-        ]);
+        const chainId = await client.getChainId();
+        // Shared with every EVM send of this process, so concurrent sends from one key never get the same nonce
+        let nonceLease = await nonceAllocator.reserveNonce(client, sender, chainId);
+        // Every hash signed for this tx: a receipt of any other tx means its nonce was taken
+        const ownHashes = new Set<Hex>();
+        let nonceRefreshes = 0;
+        let success = false;
 
-        let fees = await this.buildInitialFees(client);
-        const maxAttempts = 4;
-        let lastErr: any;
+        try {
+            let fees = await this.buildInitialFees(client);
+            const maxAttempts = 4;
+            let lastErr: any;
 
-        const network = this.payway.toUpperCase();
+            const network = this.payway.toUpperCase();
 
-        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-            const tx = this.createTransactionObject(sender, to, data, gas, nonce, chainId, value, fees);
-            const rawTx = await this.account.signTransaction(tx);
-            const rawHash = keccak256(rawTx);
-            const reqInfo = requestId ? `[${requestId}]` : '';
-            logger.info(network, `🔄${reqInfo}[${context} ATTEMPT ${attempt}/${maxAttempts}][RAW:${rawHash}]`);
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                const tx = this.createTransactionObject(sender, to, data, gas, nonceLease.nonce, chainId, value, fees);
+                const rawTx = await this.account.signTransaction(tx);
+                const rawHash = keccak256(rawTx);
+                ownHashes.add(rawHash);
+                const reqInfo = requestId ? `[${requestId}]` : '';
+                logger.info(network, `🔄${reqInfo}[${context} ATTEMPT ${attempt}/${maxAttempts}][RAW:${rawHash}]`);
 
-            try {
-                const res = await this.fanoutSend(rawTx, waitForReceipt, requestId);
-                if (waitForReceipt && currency && context === 'BATCH_SEND') {
-                    await this.logSuccessfulTransaction(
-                        { txHash: res.txHash, receipt: res.receipt as any, via: res.via },
-                        currency,
-                        requestId
-                    );
-                } else if (!waitForReceipt && currency && context === 'BATCH_SEND') {
-                    this.logTransactionSubmitted(res.txHash, res.via, requestId);
-                    this.waitForReceiptInBackground(res.txHash, rawTx, res.via, currency, requestId);
-                }
-                return res.txHash;
-            } catch (err: any) {
-                lastErr = err;
+                try {
+                    const res = await this.fanoutSend(rawTx, waitForReceipt, requestId, ownHashes);
+                    if (waitForReceipt && currency && context === 'BATCH_SEND') {
+                        await this.logSuccessfulTransaction(
+                            { txHash: res.txHash, receipt: res.receipt as any, via: res.via },
+                            currency,
+                            requestId
+                        );
+                    } else if (!waitForReceipt && currency && context === 'BATCH_SEND') {
+                        this.logTransactionSubmitted(res.txHash, res.via, requestId);
+                        this.waitForReceiptInBackground(res.txHash, rawTx, res.via, currency, ownHashes, sender, chainId, requestId);
+                    }
+                    success = true;
+                    return res.txHash;
+                } catch (err: any) {
+                    lastErr = err;
 
-                if (await this.handleMinimumTipError(err, fees, client)) {
-                    continue;
-                }
+                    // Another tx used the nonce: re-sign on a fresh one and start the attempts over
+                    if (err instanceof EvmNonceTakenError) {
+                        const freshLease = await this.refreshTakenNonce(nonceLease, nonceRefreshes, err, client, chainId, requestId);
+                        if (freshLease) {
+                            nonceLease = freshLease;
+                            nonceRefreshes += 1;
+                            attempt = 0;
+                            continue;
+                        }
+                    }
 
-                if (this.shouldBumpFees(err?.message || '') && attempt < maxAttempts) {
-                    this.bumpFees(fees);
-                    logger.warn(network, `🔄${reqInfo}[${context} REPLACE_RETRY ${attempt + 1}/${maxAttempts}]`);
-                    continue;
-                }
+                    if (await this.handleMinimumTipError(err, fees, client)) {
+                        continue;
+                    }
 
-                if (!isEvmNetworkError(err)) {
-                    if (currency && context === 'BATCH_SEND') await this.logTransactionError(err, currency, requestId);
-                    throw new Error(`${context} failed for payway = ${this.payway}: ${err?.message || err}`);
-                }
+                    if (this.shouldBumpFees(err?.message || '') && attempt < maxAttempts) {
+                        this.bumpFees(fees);
+                        logger.warn(network, `🔄${reqInfo}[${context} REPLACE_RETRY ${attempt + 1}/${maxAttempts}]`);
+                        continue;
+                    }
 
-                if (attempt === maxAttempts) {
-                    if (currency && context === 'BATCH_SEND') await this.logTransactionError(err, currency, requestId);
-                    throw new Error(`All attempts failed for payway = ${this.payway} (${context}): ${err?.message || err}`);
+                    if (!isEvmNetworkError(err)) {
+                        if (currency && context === 'BATCH_SEND') await this.logTransactionError(err, currency, requestId);
+                        throw new Error(`${context} failed for payway = ${this.payway}: ${err?.message || err}`);
+                    }
+
+                    if (attempt === maxAttempts) {
+                        if (currency && context === 'BATCH_SEND') await this.logTransactionError(err, currency, requestId);
+                        throw new Error(`All attempts failed for payway = ${this.payway} (${context}): ${err?.message || err}`);
+                    }
                 }
             }
-        }
 
-        throw new Error(`All attempts failed for payway = ${this.payway} (${context}): ${lastErr?.message || lastErr}`);
+            throw new Error(`All attempts failed for payway = ${this.payway} (${context}): ${lastErr?.message || lastErr}`);
+        } finally {
+            await nonceLease.release(success);
+        }
     }
 
     async batchSend(
