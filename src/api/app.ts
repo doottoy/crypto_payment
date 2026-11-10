@@ -2,6 +2,8 @@
 import fs from 'fs';
 import path from 'path';
 import express, { type Express, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
+import { privateKeyToAccount } from 'viem/accounts';
+import type { Address, Hex } from 'viem';
 
 /* Service imports */
 import { PayoutService } from '../services/payout.service';
@@ -23,6 +25,7 @@ import { getPayoutStore } from '../payouts/store';
 import { toApiPayout } from '../payouts/serialize';
 import { runPayout, type PayoutResult } from '../payouts/run';
 import { getBalance } from '../services/balance.service';
+import { deployToken, deployedAddressOf, mintToken, type DeployedToken } from '../services/token.service';
 import { activeBalanceWatcher } from '../balance/watcher';
 import {
     flagOr,
@@ -38,6 +41,8 @@ import {
     tronMultiSendSchema,
     payoutListQuerySchema,
     balanceQuerySchema,
+    tokenDeploySchema,
+    tokenMintSchema,
     solanaMultiSendSchema,
     solanaIntermediateAtaSchema,
     solanaCreateTokenAccountSchema
@@ -71,10 +76,14 @@ export function asyncRoute(handler: (req: Request, res: Response) => Promise<voi
 /**
  * The body stays `{ tx_id }` as before; the journal ids travel in headers so existing clients see no change.
  */
-function sendPayout(res: Response, result: PayoutResult, status = 200): void {
+function setPayoutHeaders(res: Response, result: PayoutResult): void {
     res.setHeader('X-Payout-Id', result.payoutId);
     res.setHeader('X-Request-Id', result.requestId);
     if (result.replayed) res.setHeader('X-Idempotent-Replay', 'true');
+}
+
+function sendPayout(res: Response, result: PayoutResult, status = 200): void {
+    setPayoutHeaders(res, result);
     res.status(status).json({ tx_id: result.txId });
 }
 
@@ -434,6 +443,73 @@ export function createApp(): Express {
             await tronMultiService.init(data.multi_send_contract);
             return tronMultiService.multiSend(data.token_contract, data.recipients, data.currency ?? '', data.request_id, waitForReceipt);
         });
+        sendPayout(res, result);
+    }));
+
+    /* Deploys a test ERC-20 from a precompiled preset (standard, faucet, advanced) */
+    app.post('/token/evm/deploy', asyncRoute(async (req, res) => {
+        const data = parseData(tokenDeploySchema, req.body);
+        const preset = data.preset ?? 'standard';
+        const decimals = data.decimals ?? 18;
+        let deployed: DeployedToken | undefined;
+
+        const result = await runPayout({
+            scope: 'token/evm/deploy',
+            chain: 'evm',
+            payway: data.payway,
+            currency: data.symbol,
+            requestId: data.request_id,
+            payload: req.body.data,
+            callbackUrl: data.callback_url
+        }, async () => {
+            deployed = await deployToken({
+                payway: data.payway,
+                privateKey: data.private_key,
+                preset,
+                name: data.name,
+                symbol: data.symbol,
+                decimals,
+                initialSupply: data.initial_supply ?? '0',
+                owner: data.owner as Address | undefined,
+                faucetAmount: data.faucet_amount,
+                faucetCooldown: data.faucet_cooldown,
+                requestId: data.request_id
+            });
+            return deployed.txId;
+        });
+
+        // A replayed request_id deployed nothing now: the address comes from the receipt of the journaled deploy
+        const contractAddress = deployed?.contractAddress ?? await deployedAddressOf(data.payway, data.private_key, result.txId as Hex);
+        const key = (data.private_key.startsWith('0x') ? data.private_key : `0x${data.private_key}`) as Hex;
+        setPayoutHeaders(res, result);
+        res.json({
+            tx_id: result.txId,
+            contract_address: contractAddress,
+            preset,
+            decimals,
+            owner: deployed?.owner ?? data.owner ?? privateKeyToAccount(key).address
+        });
+    }));
+
+    /* Mints a deployed test token (the key must be its owner) */
+    app.post('/token/evm/mint', asyncRoute(async (req, res) => {
+        const data = parseData(tokenMintSchema, req.body);
+
+        const result = await runPayout({
+            scope: 'token/evm/mint',
+            chain: 'evm',
+            payway: data.payway,
+            requestId: data.request_id,
+            payload: req.body.data,
+            callbackUrl: data.callback_url
+        }, () => mintToken({
+            payway: data.payway,
+            privateKey: data.private_key,
+            contract: data.contract as Address,
+            to: data.to as Address,
+            amount: data.amount,
+            requestId: data.request_id
+        }));
         sendPayout(res, result);
     }));
 

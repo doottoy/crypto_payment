@@ -318,6 +318,37 @@ Deposits native ETH from Sepolia (L1) to an L2: Base Sepolia or OP Sepolia (OP S
 - The returned `tx_id` is the **L1 deposit hash**; funds arrive on the L2 asynchronously (≈1-3 min for Base and OP Sepolia, ≈10-15 min for Arbitrum).
 - `request_id` gives the same idempotency behaviour as the EVM payout endpoints.
 
+## Test tokens (EVM)
+`POST /token/evm/deploy` deploys an ERC-20 with exactly the name, symbol and decimals a test needs, on any EVM payway. The contracts are built from OpenZeppelin 5 and precompiled into `src/tokens/artifacts.json`: nothing is compiled at runtime.
+```json
+{
+  "data": {
+    "payway": "base_eth",
+    "private_key": "...",
+    "preset": "faucet",
+    "name": "Test USD",
+    "symbol": "tUSD",
+    "decimals": 6,
+    "initial_supply": "1000000",
+    "faucet_amount": "100",
+    "faucet_cooldown": 86400,
+    "request_id": "uuid-or-stable-client-id"
+  }
+}
+```
+Answer: `{ "tx_id": "0x...", "contract_address": "0x...", "preset": "faucet", "decimals": 6, "owner": "0x..." }`.
+
+| `preset` | Contract |
+|---|---|
+| `standard` (default) | the owner can `mint` and `airdrop` (many recipients in one transaction); holders can `burn` |
+| `faucet` | `standard` plus a public `claim()` of `faucet_amount` once per `faucet_cooldown` seconds (default 86400) per address |
+| `advanced` | `standard` plus `pause` / `unpause` (every transfer reverts while paused) and EIP-2612 `permit` |
+
+- `owner` defaults to the deployer and receives `initial_supply` (default 0); `decimals` defaults to 18.
+- `POST /token/evm/mint` with `{ "payway", "private_key" (the owner), "contract", "to", "amount" }` mints more and answers `{ "tx_id": "0x..." }`. `amount` is in token units, the token decimals are read from the contract.
+- Both endpoints go through the [payout journal](#payout-journal): `request_id`, `callback_url` and `GET /payouts` work as for payouts, and a replayed deploy answers the same address without deploying again.
+- After changing a contract in `contracts/tokens`, run `npm run tokens:compile` (solc 0.8.28, OpenZeppelin 5.6.1, optimizer 200 runs, evmVersion cancun). A unit test fails when the artifacts are older than the sources.
+
 ## Balances
 `GET /balance?payway=...&address=...&token=...` reads a balance. Omit `token` for the native coin.
 ```json

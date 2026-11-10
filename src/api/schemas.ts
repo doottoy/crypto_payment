@@ -312,6 +312,33 @@ export const payoutListQuerySchema = z.object({
     limit: optional(z.coerce.number().int().min(1).max(500))
 });
 
+/* ----------------------------------------------------------------- Test tokens */
+
+export const tokenDeploySchema = z.object({
+    payway: evmPayway,
+    private_key: hexPrivateKey,
+    preset: optional(z.enum(['standard', 'faucet', 'advanced'])),
+    name: z.string().trim().min(1, 'must not be empty').max(64),
+    symbol: z.string().trim().min(1, 'must not be empty').max(16),
+    decimals: optional(z.coerce.number().int().min(0).max(36)),
+    initial_supply: optional(evmAmount),
+    owner: optional(evmAddress),
+    faucet_amount: optional(evmAmount),
+    faucet_cooldown: optional(z.coerce.number().int().min(0)),
+    request_id: requestId,
+    callback_url: callbackUrl
+}).refine((d) => d.preset !== 'faucet' || d.faucet_amount !== undefined, { message: 'is required for the faucet preset', path: ['faucet_amount'] });
+
+export const tokenMintSchema = z.object({
+    payway: evmPayway,
+    private_key: hexPrivateKey,
+    contract: evmAddress,
+    to: evmAddress,
+    amount: evmAmount,
+    request_id: requestId,
+    callback_url: callbackUrl
+});
+
 /* ----------------------------------------------------------------- Balances */
 
 export const balanceQuerySchema = z.object({
