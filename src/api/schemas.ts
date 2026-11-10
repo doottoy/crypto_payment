@@ -339,6 +339,74 @@ export const tokenMintSchema = z.object({
     callback_url: callbackUrl
 });
 
+/* ----------------------------------------------------------------- Deposit test scenarios */
+
+/** Scenario amounts go through parseUnits: plain decimals only */
+const plainAmount = tronAmount;
+
+export const scenarioRevertedTransferSchema = z.object({
+    payway: evmPayway,
+    private_key: hexPrivateKey,
+    payee_address: evmAddress,
+    contract: evmAddress,
+    amount: plainAmount,
+    request_id: requestId,
+    callback_url: callbackUrl
+});
+
+export const scenarioLookalikeTokenSchema = z.object({
+    payway: evmPayway,
+    private_key: hexPrivateKey,
+    payee_address: evmAddress,
+    original_contract: evmAddress,
+    amount: plainAmount,
+    fake_contract: optional(evmAddress),
+    request_id: requestId,
+    callback_url: callbackUrl
+});
+
+export const scenarioReplacedTransferSchema = z.object({
+    payway: evmPayway,
+    private_key: hexPrivateKey,
+    payee_address: evmAddress,
+    amount: plainAmount,
+    request_id: requestId,
+    callback_url: callbackUrl
+});
+
+export const scenarioFailedTrc20Schema = z.object({
+    payway: optional(text),
+    private_key: hexPrivateKey,
+    payee_address: tronAddress,
+    contract: tronAddress,
+    amount: plainAmount,
+    fee_limit_sun: optional(z.coerce.number().int().min(0)),
+    request_id: requestId,
+    callback_url: callbackUrl
+});
+
+export const scenarioFailedSolanaTransferSchema = z.object({
+    private_key: solanaPrivateKey,
+    payee_address: solanaAddress,
+    amount: plainAmount,
+    token_mint: optional(solanaAddress),
+    is_token_2022: truthy,
+    request_id: requestId,
+    callback_url: callbackUrl
+});
+
+export const scenarioToken2022FeeSchema = z.object({
+    private_key: solanaPrivateKey,
+    payee_address: solanaAddress,
+    amount: plainAmount,
+    fee_basis_points: optional(z.coerce.number().int().min(1).max(10000)),
+    max_fee: optional(plainAmount),
+    decimals: optional(z.coerce.number().int().min(0).max(9)),
+    mint: optional(solanaAddress),
+    request_id: requestId,
+    callback_url: callbackUrl
+});
+
 /* ----------------------------------------------------------------- Balances */
 
 export const balanceQuerySchema = z.object({

@@ -50,7 +50,15 @@ export class EvmContractService extends BaseEvmService {
         return this.onAnyProvider((client) => client.getTransactionReceipt({ hash }));
     }
 
-    async sendAndConfirm(params: { to?: Address; data: Hex; value?: bigint; label: string; requestId?: string }): Promise<{ txHash: Hex; receipt: TransactionReceipt }> {
+    async estimate(to: Address | undefined, data: Hex, value: bigint = 0n): Promise<bigint> {
+        return this.onAnyProvider((client) => client.estimateGas({ account: this.account, to, data, value }));
+    }
+
+    /**
+     * `gas` skips the estimate: a call meant to revert cannot be estimated (the node refuses to estimate a revert),
+     * so the caller passes a limit taken from a call that succeeds.
+     */
+    async sendAndConfirm(params: { to?: Address; data: Hex; value?: bigint; gas?: bigint; label: string; requestId?: string }): Promise<{ txHash: Hex; receipt: TransactionReceipt }> {
         const { to, data, label, requestId } = params;
         const value = params.value ?? 0n;
         const network = this.payway.toUpperCase();
@@ -61,7 +69,7 @@ export class EvmContractService extends BaseEvmService {
         const { client, gas, chainId, fees } = await this.onAnyProvider(async (candidate) => ({
             client: candidate,
             // 20% over the node estimate; never below it (Arbitrum estimates carry the L1 data component)
-            gas: ((await candidate.estimateGas({ account: this.account, to, data, value })) * 120n) / 100n,
+            gas: params.gas ?? ((await candidate.estimateGas({ account: this.account, to, data, value })) * 120n) / 100n,
             chainId: await candidate.getChainId(),
             fees: await this.buildInitialFees(candidate)
         }));
@@ -113,6 +121,61 @@ export class EvmContractService extends BaseEvmService {
             throw new Error(`All attempts failed for payway = ${this.payway} (${label})`);
         } finally {
             await lease.release(success);
+        }
+    }
+
+    /**
+     * Sends a native transfer to `payee`, then at once a cancel on the same nonce: a 0-value transfer to the sender
+     * with doubled fees, which replaces the first one when both are still in the mempool. Exactly one of the two can
+     * be mined; which one depends on the chain (a fast sequencer may include the first before the cancel arrives),
+     * so the outcome is reported rather than assumed.
+     */
+    async sendReplacedTransfer(params: { payee: Address; value: bigint; requestId?: string; timeoutMs?: number }): Promise<{
+        originalTxId: Hex; replacementTxId: Hex; minedTxId: Hex; outcome: 'replaced' | 'original_mined';
+    }> {
+        const network = this.payway.toUpperCase();
+        const reqInfo = params.requestId ? `[${params.requestId}]` : '';
+        const client = await this.getFirstHealthyClient();
+        const sender = this.account.address;
+        const chainId = await client.getChainId();
+        const fees = await this.buildInitialFees(client);
+        const gas = 21000n * 2n;
+
+        const lease = await nonceAllocator.reserveNonce(client, sender, chainId);
+        let mined = false;
+        try {
+            const withFees = (tx: any, factor: bigint) => (fees.type2
+                ? { ...tx, maxFeePerGas: (fees.maxFeePerGas as bigint) * factor, maxPriorityFeePerGas: (fees.maxPriorityFeePerGas as bigint) * factor }
+                : { ...tx, gasPrice: (fees.gasPrice as bigint) * factor });
+            const original = await this.account.signTransaction(withFees({ to: params.payee, value: params.value, gas, nonce: lease.nonce, chainId }, 1n));
+            const cancel = await this.account.signTransaction(withFees({ to: sender, value: 0n, gas, nonce: lease.nonce, chainId }, 2n));
+            const originalTxId = keccak256(original);
+            const replacementTxId = keccak256(cancel);
+
+            await client.sendRawTransaction({ serializedTransaction: original });
+            logger.info(network, `🧪${reqInfo}[RBF][ORIGINAL][HASH:${originalTxId}]`);
+            try {
+                await client.sendRawTransaction({ serializedTransaction: cancel });
+                logger.info(network, `🧪${reqInfo}[RBF][CANCEL][HASH:${replacementTxId}]`);
+            } catch (error: any) {
+                // Refused when the original already left the mempool (mined): the poll below finds it
+                logger.warn(network, `⚠️${reqInfo}[RBF][CANCEL_REFUSED][MSG:${error?.shortMessage || error?.message}]`);
+            }
+
+            const deadline = Date.now() + (params.timeoutMs ?? 180000);
+            while (Date.now() < deadline) {
+                for (const hash of [replacementTxId, originalTxId]) {
+                    const receipt = await client.getTransactionReceipt({ hash }).catch(() => null);
+                    if (receipt) {
+                        mined = true;
+                        return { originalTxId, replacementTxId, minedTxId: hash, outcome: hash === replacementTxId ? 'replaced' : 'original_mined' };
+                    }
+                }
+                await new Promise((resolve) => { setTimeout(resolve, 2000); });
+            }
+            throw new Error(`Neither ${originalTxId} nor ${replacementTxId} was mined in time`);
+        } finally {
+            await lease.release(mined);
         }
     }
 }

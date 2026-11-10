@@ -113,6 +113,7 @@ HTTP statuses are the ones the service always answered with: 400 when the reques
 | `invalid_address` | 500 | The Litecoin node rejected an address |
 | `wallet_not_found` | 500 | The Litecoin wallet named in `account` is not loaded |
 | `node_error` | 500 | The Litecoin node failed for another reason |
+| `scenario_not_reproduced` | 422 | A [deposit test scenario](#deposit-test-scenarios) could not produce its transaction; `details.tx_id` is what happened instead |
 | `internal_error` | 500 | Anything else |
 
 ### EVM (single)
@@ -348,6 +349,22 @@ Answer: `{ "tx_id": "0x...", "contract_address": "0x...", "preset": "faucet", "d
 - `POST /token/evm/mint` with `{ "payway", "private_key" (the owner), "contract", "to", "amount" }` mints more and answers `{ "tx_id": "0x..." }`. `amount` is in token units, the token decimals are read from the contract.
 - Both endpoints go through the [payout journal](#payout-journal): `request_id`, `callback_url` and `GET /payouts` work as for payouts, and a replayed deploy answers the same address without deploying again.
 - After changing a contract in `contracts/tokens`, run `npm run tokens:compile` (solc 0.8.28, OpenZeppelin 5.6.1, optimizer 200 runs, evmVersion cancun). A unit test fails when the artifacts are older than the sources.
+
+## Deposit test scenarios
+Transactions a deposit system has to get right; most of them must not be credited at all. Each endpoint answers `{ "tx_id", "scenario", "expected", "details" }` and goes through the [payout journal](#payout-journal), so a retried `request_id` never sends a second one.
+
+| Endpoint and fields | What it sends | What a correct deposit system does |
+|---|---|---|
+| `POST /scenario/evm/reverted_transfer`<br>`payway, private_key, payee_address, contract, amount` | An ERC20 `transfer` above the sender balance, mined with status reverted | Credits nothing: no Transfer event, no balance change |
+| `POST /scenario/evm/lookalike_token`<br>`payway, private_key, payee_address, original_contract, amount, fake_contract?` | A new token with the name, symbol and decimals of `original_contract`, then an ordinary transfer of it | Credits nothing: same symbol, different contract. Pass `details.fake_contract` back as `fake_contract` to reuse the copy |
+| `POST /scenario/evm/replaced_transfer`<br>`payway, private_key, payee_address, amount` | A native transfer to the payee, replaced at once by a 0-value cancel on the same nonce | Credits nothing when `details.outcome` is `replaced`. A fast chain may mine the original first (`original_mined`), which is then an ordinary deposit |
+| `POST /scenario/tron/failed_trc20`<br>`private_key, payee_address, contract, amount, fee_limit_sun?` | A TRC20 transfer with a 1 TRX fee limit, so it runs out of energy in the block | Credits nothing: `details.result` is `OUT_OF_ENERGY` |
+| `POST /scenario/solana/failed_transfer`<br>`private_key, payee_address, amount, token_mint?, is_token_2022?` | A SOL or token transfer above the balance, sent without preflight so it lands in a block and fails | Credits nothing: the transaction carries an error |
+| `POST /scenario/solana/token2022_transfer_fee`<br>`private_key, payee_address, amount, fee_basis_points?, max_fee?, decimals?, mint?` | A Token-2022 mint with a transfer fee (default 1%) and a transfer paying it | Credits `details.received` (the amount minus the fee withheld in the recipient account), not the amount of the instruction |
+
+A scenario that cannot produce its transaction (for example the Tron sender has enough staked energy for the transfer) answers 422 `scenario_not_reproduced` with the `tx_id` of what happened instead. A replayed `request_id` answers `{ "tx_id", "scenario", "replayed": true }`.
+
+Zero-value transfers (the address-poisoning pattern) need no scenario: `POST /payout/evm` with `"amount": "0"`.
 
 ## Balances
 `GET /balance?payway=...&address=...&token=...` reads a balance. Omit `token` for the native coin.

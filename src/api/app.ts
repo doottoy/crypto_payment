@@ -26,6 +26,9 @@ import { toApiPayout } from '../payouts/serialize';
 import { runPayout, type PayoutResult } from '../payouts/run';
 import { getBalance } from '../services/balance.service';
 import { deployToken, deployedAddressOf, mintToken, type DeployedToken } from '../services/token.service';
+import { lookalikeTokenTransfer, replacedNativeTransfer, revertedErc20Transfer, type ScenarioResult } from '../scenarios/evm.scenarios';
+import { failedTrc20Transfer } from '../scenarios/tron.scenarios';
+import { failedSolanaTransfer, token2022TransferFee } from '../scenarios/solana.scenarios';
 import { activeBalanceWatcher } from '../balance/watcher';
 import {
     flagOr,
@@ -43,6 +46,12 @@ import {
     balanceQuerySchema,
     tokenDeploySchema,
     tokenMintSchema,
+    scenarioRevertedTransferSchema,
+    scenarioLookalikeTokenSchema,
+    scenarioReplacedTransferSchema,
+    scenarioFailedTrc20Schema,
+    scenarioFailedSolanaTransferSchema,
+    scenarioToken2022FeeSchema,
     solanaMultiSendSchema,
     solanaIntermediateAtaSchema,
     solanaCreateTokenAccountSchema
@@ -511,6 +520,60 @@ export function createApp(): Express {
             requestId: data.request_id
         }));
         sendPayout(res, result);
+    }));
+
+    /*
+     * Deposit test scenarios: transactions a deposit system must not credit (or must credit differently).
+     * Each runs through the payout journal, so a retried request_id never sends a second one.
+     */
+    const scenarioRoute = <T extends { request_id?: string; callback_url?: string; payway?: string }>(
+        path: string,
+        chain: string,
+        parse: (body: unknown) => T,
+        run: (data: T) => Promise<ScenarioResult>
+    ) => {
+        app.post(path, asyncRoute(async (req, res) => {
+            const data = parse(req.body);
+            let outcome: ScenarioResult | undefined;
+            const result = await runPayout({
+                scope: path.slice(1),
+                chain,
+                payway: data.payway,
+                requestId: data.request_id,
+                payload: req.body.data,
+                callbackUrl: data.callback_url
+            }, async () => {
+                outcome = await run(data);
+                return String(outcome.txId);
+            });
+            setPayoutHeaders(res, result);
+            res.json(outcome
+                ? { tx_id: result.txId, scenario: outcome.scenario, expected: outcome.expected, details: outcome.details }
+                : { tx_id: result.txId, scenario: path.replace('/scenario/', ''), replayed: true });
+        }));
+    };
+
+    scenarioRoute('/scenario/evm/reverted_transfer', 'evm', (body) => parseData(scenarioRevertedTransferSchema, body), (d) => revertedErc20Transfer({
+        payway: d.payway, privateKey: d.private_key, payee: d.payee_address as Address, contract: d.contract as Address, amount: d.amount, requestId: d.request_id
+    }));
+    scenarioRoute('/scenario/evm/lookalike_token', 'evm', (body) => parseData(scenarioLookalikeTokenSchema, body), (d) => lookalikeTokenTransfer({
+        payway: d.payway, privateKey: d.private_key, payee: d.payee_address as Address, original: d.original_contract as Address,
+        amount: d.amount, fakeContract: d.fake_contract as Address | undefined, requestId: d.request_id
+    }));
+    scenarioRoute('/scenario/evm/replaced_transfer', 'evm', (body) => parseData(scenarioReplacedTransferSchema, body), (d) => replacedNativeTransfer({
+        payway: d.payway, privateKey: d.private_key, payee: d.payee_address as Address, amount: d.amount, requestId: d.request_id
+    }));
+    scenarioRoute('/scenario/tron/failed_trc20', 'tron', (body) => parseData(scenarioFailedTrc20Schema, body), (d) => failedTrc20Transfer({
+        payway: d.payway ?? 'trc20', privateKey: d.private_key, payee: d.payee_address, contract: d.contract, amount: d.amount,
+        feeLimitSun: d.fee_limit_sun, requestId: d.request_id
+    }));
+    scenarioRoute('/scenario/solana/failed_transfer', 'solana', (body) => parseData(scenarioFailedSolanaTransferSchema, body), (d) => failedSolanaTransfer({
+        privateKey: d.private_key, payee: d.payee_address, amount: d.amount, tokenMint: d.token_mint,
+        isToken2022: flagOr(d.is_token_2022, false), requestId: d.request_id
+    }));
+    scenarioRoute('/scenario/solana/token2022_transfer_fee', 'solana', (body) => parseData(scenarioToken2022FeeSchema, body), (d) => token2022TransferFee({
+        privateKey: d.private_key, payee: d.payee_address, amount: d.amount, feeBasisPoints: d.fee_basis_points, maxFee: d.max_fee,
+        decimals: d.decimals, mint: d.mint, requestId: d.request_id
     }));
 
     /* Unknown routes answer JSON too */
