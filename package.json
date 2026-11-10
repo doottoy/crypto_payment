@@ -10,7 +10,8 @@
     "app:start": "node dist/app.js",
     "tests:start": "",
     "tests:get-data-from-sheet": "ts-node src/__tests__/utils/get-data-from-sheet.ts 0 cryptoPaymentTestData.json",
-    "test:unit": "mocha --no-config --require ts-node/register --require src/__tests__/setup.ts --timeout 60000 --exit \"src/__tests__/unit/**/*.test.ts\" src/__tests__/utils/idempotency.test.ts src/__tests__/utils/evm.test.ts src/__tests__/services/evm.nonce.test.ts"
+    "test:unit": "mocha --no-config --require ts-node/register --require src/__tests__/setup.ts --timeout 60000 --exit \"src/__tests__/unit/**/*.test.ts\" src/__tests__/utils/idempotency.test.ts src/__tests__/utils/evm.test.ts src/__tests__/services/evm.nonce.test.ts",
+    "tokens:compile": "node scripts/compile-tokens.js"
   },
   "dependencies": {
     "@solana/spl-token": "^0.4.9",
@@ -32,6 +33,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@openzeppelin/contracts": "5.6.1",
     "@types/chai": "^4.3.17",
     "@types/express": "^4.17.21",
     "@types/mocha": "^10.0.7",
@@ -45,6 +47,7 @@
     "eslint-config-airbnb-base": "^15.0.0",
     "eslint-plugin-import": "^2.25.2",
     "mocha": "^10.7.3",
+    "solc": "0.8.28",
     "source-map-support": "^0.5.21",
     "ts-node": "^10.4.0",
     "typescript": "^5.7.2"
