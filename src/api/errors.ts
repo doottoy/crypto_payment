@@ -5,6 +5,7 @@ import { InsufficientFundsError } from 'viem';
 /* Internal dependencies */
 import { IdempotencyConflictError } from '../utils/idempotency';
 import { EvmNonceTakenError, EvmTransactionRevertedError } from '../utils/evm';
+import { TronConfirmationTimeoutError, TronExecutionFailedError } from '../utils/tron-broadcast';
 
 /**
  * An error the API answers with a fixed HTTP status and a machine-readable code.
@@ -146,6 +147,17 @@ export function toErrorResponse(err: unknown): { status: number; body: ErrorBody
             status: PROCESSING_FAILED,
             body: body('nonce_taken', messageOf(err), { tx_id: err.txHash, foreign_tx_id: err.foreignTxHash, nonce: err.nonce })
         };
+    }
+
+    if (err instanceof TronExecutionFailedError) {
+        return {
+            status: PROCESSING_FAILED,
+            body: body('tx_failed', messageOf(err), { tx_id: err.txId, result: err.result, block_number: err.blockNumber ?? null })
+        };
+    }
+
+    if (err instanceof TronConfirmationTimeoutError) {
+        return { status: PROCESSING_FAILED, body: body('tx_not_confirmed', messageOf(err), { tx_id: err.txId }) };
     }
 
     if (err instanceof CoreRpcError) {

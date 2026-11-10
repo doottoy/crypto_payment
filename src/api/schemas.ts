@@ -301,6 +301,7 @@ export const tronMultiSendSchema = z.object({
     multi_send_contract: tronAddress,
     recipients: z.array(z.object({ address: tronAddress, amount: tronAmount })),
     token_contract: optional(tronAddress),
+    wait_for_receipt: truthy,
     request_id: requestId,
     callback_url: callbackUrl
 });

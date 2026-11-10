@@ -1,11 +1,13 @@
 /* External dependencies */
+import { parseUnits } from 'viem';
 import { TronWeb } from 'tronweb';
 
 /* Internal dependencies */
 import { logger } from '../utils/logger';
 import { modules } from '../utils/modules';
+import { reportPayoutOutcome } from '../payouts/run';
 import { notifierMessage } from '../utils/message-formatter';
-import { sendTronTransactionVerified } from '../utils/tron-broadcast';
+import { sendTronTransactionVerified, waitForTronExecution } from '../utils/tron-broadcast';
 
 /* Constants */
 import { Const } from '../constants/const';
@@ -59,12 +61,12 @@ export class TronPayoutService {
     }
 
     /**
-     * Conversion of amount to base units taking into account token decimals
+     * Conversion of amount to base units taking into account token decimals. Same arithmetic as the EVM payouts
+     * (viem parseUnits): digits past the token decimals are rounded instead of being glued onto the integer part,
+     * which turned "1.1234567" TRX into 11.234567 TRX.
      */
     private convertToBaseUnit(amount: string, decimals: number): string {
-        const [integerPart, fractionPart = ''] = amount.split('.');
-        const fracPadded = fractionPart.padEnd(decimals, '0');
-        return integerPart + fracPadded;
+        return parseUnits(amount, decimals).toString();
     }
 
     /**
@@ -140,19 +142,44 @@ export class TronPayoutService {
         amount: string,
         contract: string | undefined,
         currency: string,
-        requestId?: string
+        requestId?: string,
+        waitForReceipt: boolean = true
     ): Promise<string> {
+        const network = this.payway.toUpperCase();
+        const reqInfo = requestId ? `[${requestId}]` : '';
         try {
             const txId = contract
                 ? await this.sendTokenTransaction(payee_address, amount, contract)
                 : await this.sendNativeTransaction(payee_address, amount);
 
+            if (!waitForReceipt) {
+                logger.info(network, `📨${reqInfo}[SUBMITTED][HASH:${txId}]`);
+                this.confirmInBackground(txId, amount, payee_address, currency, requestId);
+                return txId;
+            }
+
+            // An accepted broadcast is not a payout yet: a TRC20 transfer can still revert or run out of energy
+            await waitForTronExecution(this.tronWeb, network, txId);
             await this.logSuccessfulTransaction(amount, payee_address, currency, txId, requestId);
             return txId;
         } catch (error) {
             await this.logTransactionError(currency, error, requestId);
             throw error;
         }
+    }
+
+    /** wait_for_receipt: false answers after the broadcast; the execution is checked here and reported */
+    private confirmInBackground(txId: string, amount: string, payeeAddress: string, currency: string, requestId?: string): void {
+        void (async () => {
+            try {
+                await waitForTronExecution(this.tronWeb, this.payway.toUpperCase(), txId);
+                await this.logSuccessfulTransaction(amount, payeeAddress, currency, txId, requestId);
+                reportPayoutOutcome({ txId });
+            } catch (error) {
+                reportPayoutOutcome({ error, txId });
+                await this.logTransactionError(currency, error, requestId);
+            }
+        })();
     }
 
     public static normalizeTronPayload(body: unknown): TronNormalizedPayload {
