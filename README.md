@@ -2,7 +2,7 @@
 
 [![CI/CD Pipeline](https://github.com/doottoy/crypto_payment/actions/workflows/depoly.yml/badge.svg)](https://github.com/doottoy/crypto_payment/actions/workflows/depoly.yml)
 
-API service for crypto payouts across EVM (ETH Sepolia, Base Sepolia, Arbitrum Sepolia, BSC testnet, Polygon Amoy), Litecoin Testnet, Solana devnet (SOL & SPL/Token-2022), and Tron Nile (TRX/TRC20). Handles signing, fee selection, RPC failover, and Telegram alerts.
+API service for crypto payouts across EVM (ETH Sepolia, Base Sepolia, Arbitrum Sepolia, OP Sepolia, BSC testnet, Polygon Amoy), Litecoin Testnet, Solana devnet (SOL & SPL/Token-2022), and Tron Nile (TRX/TRC20). Handles signing, fee selection, RPC failover, and Telegram alerts.
 
 ## Overview video
 
@@ -15,10 +15,10 @@ A 2-minute overview: one HTTP API for payouts on EVM chains, Solana, Tron and Li
 - Telegram alerts with explorer links for success and errors.
 - EVM fee helpers (maxPriorityFee/maxFee bumping, provider failover).
 - SPL/Token-2022 on Solana; TRX/TRC20 on Tron; Litecoin Testnet support.
-- Native ETH bridging from Sepolia to Base/Arbitrum Sepolia (L1→L2 deposits).
+- Native ETH bridging from Sepolia to Base, Arbitrum and OP Sepolia (L1→L2 deposits).
 
 ## Supported networks
-- EVM: ETH Sepolia, Base Sepolia, Arbitrum Sepolia, BSC testnet, Polygon Amoy
+- EVM: ETH Sepolia, Base Sepolia, Arbitrum Sepolia, OP Sepolia, BSC testnet, Polygon Amoy
 - Litecoin: Litecoin Testnet
 - Solana: devnet (SOL, SPL, Token-2022)
 - Tron: Nile (TRX, TRC20)
@@ -128,6 +128,19 @@ HTTP statuses are the ones the service always answered with: 400 when the reques
 }
 ```
 Omit `contract` to send native ETH instead of ERC20.
+
+`payway` picks the network (case-insensitive):
+
+| Network | `payway` |
+|---|---|
+| ETH Sepolia | `eth`, `erc20`, `ethereum` |
+| BSC testnet | `bsc`, `bep20` |
+| Arbitrum Sepolia | `arbitrum_eth`, `arbitrum_erc20`, `arbitrum` |
+| Base Sepolia | `base_eth`, `base_erc20`, `base` |
+| Polygon Amoy | `polygon_eth`, `polygon_erc20`, `polygon` |
+| OP Sepolia | `op_eth`, `op_erc20`, `optimism` |
+
+All EVM networks live in one registry (`src/networks/evm-networks.ts`): a new one is an entry there plus its payway names, providers and explorer in `src/constants/const.ts`.
 Set `wait_for_receipt` to `false` to return `tx_id` immediately after submission; the service will wait for the receipt in the background.
 Pass a stable `request_id` on client retries so the same payout request can be safely replayed without creating a new transaction. This works on every payout endpoint and survives restarts, see [Payout journal](#payout-journal).
 
@@ -283,7 +296,7 @@ The service answers once the transaction has executed in a block (usually 3 to 6
 
 ### Bridge (native ETH, L1 → L2)
 `POST /bridge/eth`
-Deposits native ETH from Sepolia (L1) to an L2 - Base Sepolia (OP Stack) or Arbitrum Sepolia (Nitro). The source chain is always Sepolia.
+Deposits native ETH from Sepolia (L1) to an L2: Base Sepolia or OP Sepolia (OP Stack), or Arbitrum Sepolia (Nitro). The source chain is always Sepolia.
 ```json
 {
   "data": {
@@ -296,9 +309,9 @@ Deposits native ETH from Sepolia (L1) to an L2 - Base Sepolia (OP Stack) or Arbi
   }
 }
 ```
-- `destination`: `base` or `arbitrum`.
+- `destination`: `base`, `arbitrum` or `optimism`.
 - Omit `payee_address` to bridge to the sender's own address on the L2; provide it to credit a different recipient. (For Arbitrum with a custom recipient the service uses a retryable ticket, reading the submission fee and L2 gas price on-chain.)
-- The returned `tx_id` is the **L1 deposit hash**; funds arrive on the L2 asynchronously (≈1-3 min for Base, ≈10-15 min for Arbitrum).
+- The returned `tx_id` is the **L1 deposit hash**; funds arrive on the L2 asynchronously (≈1-3 min for Base and OP Sepolia, ≈10-15 min for Arbitrum).
 - `request_id` gives the same idempotency behaviour as the EVM payout endpoints.
 
 ## Payout journal

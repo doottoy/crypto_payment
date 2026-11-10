@@ -1,5 +1,11 @@
 /* Constants */
 import { Const } from '../constants/const';
+import { findEvmNetwork } from '../networks/evm-networks';
+
+/* Explorer of an EVM payway; anything unknown falls back to Sepolia, as it always did */
+function evmExplorer(payway: string): string {
+    return findEvmNetwork(payway)?.explorerTx ?? Const.TESTNET_EXPLORER.ETH;
+}
 
 function appendRequestId(message: string, requestId?: string): string {
     return requestId ? `${message}\n🧾 Request ID: ${requestId}` : message;
@@ -14,15 +20,7 @@ function appendRequestId(message: string, requestId?: string): string {
  */
 function formatSuccessMultiSend(payway: string, currency: string, transaction: any, requestId?: string): string {
     // Determine the appropriate explorer link based on the payway
-    const explorerLink = Const.BSC_PAYWAY.includes(payway)
-        ? Const.TESTNET_EXPLORER.BSC
-        : Const.ARBITRUM_PAYWAY.includes(payway)
-            ? Const.TESTNET_EXPLORER.ARBITRUM
-            : Const.BASE_PAYWAY.includes(payway)
-                ? Const.TESTNET_EXPLORER.BASE
-                : Const.POLYGON_PAYWAY.includes(payway)
-                    ? Const.TESTNET_EXPLORER.POLYGON
-                    : Const.TESTNET_EXPLORER.ETH;
+    const explorerLink = evmExplorer(payway);
 
     // Return a formatted success message
     const message = `⚙️ Type: Multi Send transaction
@@ -62,15 +60,7 @@ function formatSuccessMultiSendLTC(payway: string, currency: string, transaction
  */
 function formatSuccessEVMTransaction(payway: string, currency: string, transaction: any, requestId?: string): string {
     // Determine the appropriate explorer link based on the payway
-    const explorerLink = Const.BSC_PAYWAY.includes(payway)
-        ? Const.TESTNET_EXPLORER.BSC
-        : Const.ARBITRUM_PAYWAY.includes(payway)
-            ? Const.TESTNET_EXPLORER.ARBITRUM
-            : Const.BASE_PAYWAY.includes(payway)
-                ? Const.TESTNET_EXPLORER.BASE
-                : Const.POLYGON_PAYWAY.includes(payway)
-                    ? Const.TESTNET_EXPLORER.POLYGON
-                    : Const.TESTNET_EXPLORER.ETH;
+    const explorerLink = evmExplorer(payway);
 
     // Return a formatted success message
     const message = `⚙️ Type: EVM transaction

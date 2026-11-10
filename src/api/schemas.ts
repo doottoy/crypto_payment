@@ -6,6 +6,7 @@ import { TronWeb } from 'tronweb';
 import { PublicKey } from '@solana/web3.js';
 
 /* Internal dependencies */
+import { evmPayways } from '../networks/evm-networks';
 import { getChainForPayway } from '../utils/evm';
 import { getEvmRpcUrlsForPayway } from '../utils/modules';
 
@@ -19,13 +20,7 @@ import { Const } from '../constants/const';
  * loosely as that chain's code parsed them.
  */
 
-const EVM_PAYWAYS: readonly string[] = [
-    ...Const.ETH_PAYWAY,
-    ...Const.BSC_PAYWAY,
-    ...Const.ARBITRUM_PAYWAY,
-    ...Const.BASE_PAYWAY,
-    ...Const.POLYGON_PAYWAY
-];
+const EVM_PAYWAYS: readonly string[] = evmPayways();
 
 const PLAIN_DECIMAL = /^\d*\.?\d*$/;
 

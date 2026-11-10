@@ -1,5 +1,5 @@
 /* External dependencies */
-import { arbitrumSepolia, baseSepolia, bscTestnet, polygonAmoy, sepolia, type Chain } from 'viem/chains';
+import type { Chain } from 'viem/chains';
 import {
     type Hex,
     keccak256,
@@ -27,6 +27,7 @@ import {
 
 /* Constants */
 import { Const } from '../constants/const';
+import { findEvmNetwork } from '../networks/evm-networks';
 
 /* A node's verdict on the transaction itself - every provider answers the same, so failing over only wastes time */
 const EVM_TX_REJECTION_ERRORS = [
@@ -58,15 +59,11 @@ const EVM_PROVIDER_REQUEST_ERRORS = [
  * Resolves viem chain config by logical payway name.
  */
 export function getChainForPayway(payway: string): Chain {
-    const p = payway.toLowerCase();
-
-    if ((Const.ETH_PAYWAY as readonly string[]).includes(p)) return sepolia;
-    if ((Const.BSC_PAYWAY as readonly string[]).includes(p)) return bscTestnet;
-    if ((Const.ARBITRUM_PAYWAY as readonly string[]).includes(p)) return arbitrumSepolia;
-    if ((Const.BASE_PAYWAY as readonly string[]).includes(p)) return baseSepolia;
-    if ((Const.POLYGON_PAYWAY as readonly string[]).includes(p)) return polygonAmoy;
-
-    throw new Error(`Unsupported payway for chain mapping: ${payway}`);
+    const network = findEvmNetwork(payway);
+    if (!network) {
+        throw new Error(`Unsupported payway for chain mapping: ${payway}`);
+    }
+    return network.chain;
 }
 
 export function getEvmErrorMessage(err: any): string {

@@ -18,6 +18,7 @@ import { getPayoutStore } from '../../payouts/store';
 
 const BASE_SEPOLIA_ID = 84532;
 const SEPOLIA_ID = 11155111;
+const OP_SEPOLIA_ID = 11155420;
 const BLOCK = '0x8adc40';
 const BLOCK_HASH = `0x${'ab'.repeat(32)}`;
 const PAYEE = privateKeyToAccount(generatePrivateKey()).address;
@@ -99,6 +100,7 @@ describe('EVM routes end to end', () => {
     let baseUrl: string;
     let chain: MockChain;
     let l1: MockChain;
+    let op: MockChain;
     const key = generatePrivateKey();
     const sender = privateKeyToAccount(key).address;
     const providers = { ...Const.EVM_RPC_PROVIDERS };
@@ -108,8 +110,10 @@ describe('EVM routes end to end', () => {
         modules.sendMessageToTelegram = async () => undefined;
         chain = await startMockChain(sender, BASE_SEPOLIA_ID);
         l1 = await startMockChain(sender, SEPOLIA_ID);
+        op = await startMockChain(sender, OP_SEPOLIA_ID);
         Const.EVM_RPC_PROVIDERS.base_eth = [chain.url];
         Const.EVM_RPC_PROVIDERS.eth = [l1.url];
+        Const.EVM_RPC_PROVIDERS.op_eth = [op.url];
 
         app = createApp().listen(0);
         await new Promise((resolve) => app.once('listening', resolve));
@@ -122,6 +126,7 @@ describe('EVM routes end to end', () => {
         await new Promise((resolve) => app.close(resolve));
         await chain.close();
         await l1.close();
+        await op.close();
     });
 
     async function post(path: string, data: Record<string, unknown>) {
@@ -198,6 +203,24 @@ describe('EVM routes end to end', () => {
 
         expect(res.status).to.equal(200);
         expect(parseTransaction(l1.broadcasts[l1.broadcasts.length - 1]).to?.toLowerCase()).to.equal(Const.BASE_SEPOLIA_L1_STANDARD_BRIDGE.toLowerCase());
+    });
+
+    it('pays on OP Sepolia through the op_eth payway', async () => {
+        const res = await post('/payout/evm', { payway: 'op_eth', payee_address: PAYEE, amount: '0.000001', currency: 'ETH', private_key: key });
+
+        expect(res.status).to.equal(200);
+        const sent = parseTransaction(op.broadcasts[op.broadcasts.length - 1]);
+        expect(sent.chainId).to.equal(OP_SEPOLIA_ID);
+        expect(sent.to?.toLowerCase()).to.equal(PAYEE.toLowerCase());
+    });
+
+    it('bridges from Sepolia to OP Sepolia through its L1StandardBridge', async () => {
+        const res = await post('/bridge/eth', { destination: 'optimism', amount: '0.000001', private_key: key, payee_address: PAYEE });
+
+        expect(res.status).to.equal(200);
+        const sent = parseTransaction(l1.broadcasts[l1.broadcasts.length - 1]);
+        expect(sent.to?.toLowerCase()).to.equal(Const.OPTIMISM_SEPOLIA_L1_STANDARD_BRIDGE.toLowerCase());
+        expect(sent.data?.startsWith('0xe11013dd')).to.equal(true); // bridgeETHTo(address,uint32,bytes)
     });
 
     it('replays a retried request_id without broadcasting again', async () => {
