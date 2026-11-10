@@ -5,6 +5,7 @@ import { createServer, type Server } from 'http';
 
 import { createApp } from '../../api/app';
 import { modules } from '../../utils/modules';
+import { Const } from '../../constants/const';
 
 type NodeReply = { status?: number; body: unknown };
 
@@ -127,7 +128,8 @@ describe('HTTP API', () => {
             });
 
             expect(res.status).to.equal(400);
-            expect(res.body.error).to.equal('Unsupported bridge destination: zksync. Supported: base, arbitrum');
+            // the wording of the old check; the list grows with each supported destination
+            expect(res.body.error).to.equal(`Unsupported bridge destination: zksync. Supported: ${Const.BRIDGE_DESTINATIONS.join(', ')}`);
         });
 
         it('validates the tron payload in both shapes', async () => {

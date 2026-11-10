@@ -44,6 +44,9 @@ export const Const = {
             polygon_eth: 25n * (10n ** 9n),
             polygon_erc20: 25n * (10n ** 9n),
             polygon: 25n * (10n ** 9n),
+            op_eth: 1n * (10n ** 8n),
+            op_erc20: 1n * (10n ** 8n),
+            optimism: 1n * (10n ** 8n),
         } as Record<string, bigint>,
         MAX_TIP_CAP: 200n * (10n ** 9n),
         MAX_FEE_CAP: 500n * (10n ** 9n),
@@ -76,6 +79,12 @@ export const Const = {
             'https://polygon-amoy-bor-rpc.publicnode.com',
             'https://polygon-amoy.infura.io/v3/7a4583d0b3014189bbff7f24582fc5ea'
         ],
+        // The Infura project answers nothing for OP Sepolia, so it is not listed
+        op_eth: [
+            'https://sepolia.optimism.io',
+            'https://optimism-sepolia-rpc.publicnode.com',
+            'https://optimism-sepolia.drpc.org'
+        ],
     } as Record<string, string[]>,
 
     // Testnet providers urls
@@ -105,13 +114,26 @@ export const Const = {
     // Supported Polygon payways
     POLYGON_PAYWAY: ['polygon_eth', 'polygon_erc20', 'polygon'],
 
+    // Supported OP Sepolia payways
+    OPTIMISM_PAYWAY: ['op_eth', 'op_erc20', 'optimism'],
+    OPTIMISM_TESTNET: 'https://sepolia.optimism.io',
+
     // --- Native ETH L1->L2 bridge (deposit from Sepolia) ---
 
     // Supported bridge destinations (source chain is always Sepolia L1)
-    BRIDGE_DESTINATIONS: ['base', 'arbitrum'] as string[],
+    BRIDGE_DESTINATIONS: ['base', 'arbitrum', 'optimism'] as string[],
 
     // Base Sepolia (OP Stack) L1StandardBridge on Sepolia — value taken from viem/chains baseSepolia.contracts
     BASE_SEPOLIA_L1_STANDARD_BRIDGE: '0xfd0Bf71F60660E2f608ed56e1659C450eB113120',
+
+    // OP Sepolia L1StandardBridge on Sepolia, from viem/chains optimismSepolia.contracts (deposit simulated on Sepolia)
+    OPTIMISM_SEPOLIA_L1_STANDARD_BRIDGE: '0xFBb0621E0B23b5478B630BD55a5f21f67730B0F1',
+
+    // Destinations deposited through an OP Stack L1StandardBridge; another OP Stack L2 is one more line here
+    OP_STACK_L1_STANDARD_BRIDGES: {
+        base: '0xfd0Bf71F60660E2f608ed56e1659C450eB113120',
+        optimism: '0xFBb0621E0B23b5478B630BD55a5f21f67730B0F1'
+    } as Record<string, string>,
 
     // Arbitrum Sepolia Delayed Inbox on Sepolia — from the Arbitrum contract-address registry
     ARBITRUM_SEPOLIA_INBOX: '0xaAe29B0366299461418F5324a79Afc425BE5ae21',
@@ -297,7 +319,8 @@ export const Const = {
         SOLANA: 'https://solscan.io/tx/',
         SOLANA_ADDRESS: 'https://explorer.solana.com/address/',
         NILE_TRON: 'https://nile.tronscan.org/#/transaction/',
-        POLYGON: 'https://amoy.polygonscan.com/tx/'
+        POLYGON: 'https://amoy.polygonscan.com/tx/',
+        OPTIMISM: 'https://sepolia-optimism.etherscan.io/tx/'
     },
 
     // Decimals method

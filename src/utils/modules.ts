@@ -16,6 +16,7 @@ import { notifierMessage } from './message-formatter';
 
 /* Constants */
 import { Const } from '../constants/const';
+import { findEvmNetwork } from '../networks/evm-networks';
 
 /**
  * Sends a message to a specified Telegram chat using the Telegram Bot API.
@@ -54,15 +55,8 @@ async function sendMessageToTelegram(message: string): Promise<void> {
  * @returns A Promise that return  RPC URL corresponding to the given payway.
  */
 async function getRpcUrl(payway: string): Promise<string> {
-    return Const.BSC_PAYWAY.includes(payway)
-        ? Const.BSC_TESTNET
-        : Const.ARBITRUM_PAYWAY.includes(payway)
-            ? Const.ARBITRUM_TESTNET
-            : Const.BASE_PAYWAY.includes(payway)
-                ? Const.BASE_TESTNET
-                : Const.POLYGON_PAYWAY.includes(payway)
-                    ? Const.AMOY_POLYGON
-                    : Const.ETH_TESTNET;
+    // Anything that is not a known EVM payway falls back to Sepolia, as it always did
+    return findEvmNetwork(payway)?.legacyRpcUrl ?? Const.ETH_TESTNET;
 }
 
 /**
@@ -142,22 +136,11 @@ export async function fetchDecimals(connection: Connection, tokenMint: string): 
 }
 
 function getEvmRpcUrlsForPayway(payway: string): string[] {
-    if (Const.ETH_PAYWAY.includes(payway)) {
-        return Const.EVM_RPC_PROVIDERS.eth;
+    const network = findEvmNetwork(payway);
+    if (!network) {
+        throw new Error(`Unknown EVM payway: ${payway}`);
     }
-    if (Const.BSC_PAYWAY.includes(payway)) {
-        return Const.EVM_RPC_PROVIDERS.bsc;
-    }
-    if (Const.ARBITRUM_PAYWAY.includes(payway)) {
-        return Const.EVM_RPC_PROVIDERS.arbitrum_eth;
-    }
-    if (Const.BASE_PAYWAY.includes(payway)) {
-        return Const.EVM_RPC_PROVIDERS.base_eth;
-    }
-    if (Const.POLYGON_PAYWAY.includes(payway)) {
-        return Const.EVM_RPC_PROVIDERS.polygon_eth;
-    }
-    throw new Error(`Unknown EVM payway: ${payway}`);
+    return Const.EVM_RPC_PROVIDERS[network.rpcKey];
 }
 
 /**

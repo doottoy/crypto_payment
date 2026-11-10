@@ -1,7 +1,7 @@
 /**
  * Supported bridge destinations. The source chain is always Sepolia L1.
  */
-export type BridgeDestination = 'base' | 'arbitrum';
+export type BridgeDestination = 'base' | 'arbitrum' | 'optimism';
 
 /**
  * Structure for a native ETH L1->L2 bridge (deposit) request.

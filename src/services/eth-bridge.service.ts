@@ -89,10 +89,10 @@ export class EthBridgeService extends BaseEvmService {
     }
 
     /**
-     * OP Stack (Base) deposit call. Self-deposit uses depositETH; an explicit
-     * recipient uses bridgeETHTo.
+     * OP Stack deposit call (Base, OP Sepolia: the same L1StandardBridge, each L2 has its own on Sepolia).
+     * Self-deposit uses depositETH; an explicit recipient uses bridgeETHTo.
      */
-    private buildBaseRoute(amount: string, payeeAddress?: string): BridgeRoute {
+    private buildOpStackRoute(bridge: Address, amount: string, payeeAddress?: string): BridgeRoute {
         const value = parseEther(amount);
         const minGasLimit = Const.OP_DEPOSIT_MIN_GAS_LIMIT;
 
@@ -108,7 +108,7 @@ export class EthBridgeService extends BaseEvmService {
                 args: [minGasLimit, '0x']
             });
 
-        return { to: Const.BASE_SEPOLIA_L1_STANDARD_BRIDGE as Address, value, data };
+        return { to: bridge, value, data };
     }
 
     /**
@@ -149,8 +149,9 @@ export class EthBridgeService extends BaseEvmService {
     }
 
     private async resolveRoute(client: PublicClient, destination: BridgeDestination, amount: string, payeeAddress?: string): Promise<BridgeRoute> {
-        if (destination === 'base') {
-            return this.buildBaseRoute(amount, payeeAddress);
+        const opStackBridge = Const.OP_STACK_L1_STANDARD_BRIDGES[destination];
+        if (opStackBridge) {
+            return this.buildOpStackRoute(opStackBridge as Address, amount, payeeAddress);
         }
         if (destination === 'arbitrum') {
             return this.buildArbitrumRoute(client, amount, payeeAddress);
