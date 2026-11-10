@@ -5,6 +5,7 @@ process.on('unhandledRejection', (reason, promise) => {
 /* Internal dependencies */
 import { createApp } from './api/app';
 import { getPayoutStore } from './payouts/store';
+import { startBalanceWatcherFromEnv } from './balance/watcher';
 
 const port = process.env.PORT || 3000;
 
@@ -12,6 +13,9 @@ const port = process.env.PORT || 3000;
 const journal = getPayoutStore();
 // Drop final payouts older than PAYOUT_RETENTION_DAYS (default 30) a few times a day
 setInterval(() => journal.prune(), 6 * 60 * 60 * 1000).unref();
+
+// Low-balance alerts for the wallets listed in BALANCE_WATCH (off when it is not set)
+startBalanceWatcherFromEnv();
 
 /* Start the Express server */
 createApp().listen(port, () => {

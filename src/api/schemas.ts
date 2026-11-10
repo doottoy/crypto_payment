@@ -312,6 +312,14 @@ export const payoutListQuerySchema = z.object({
     limit: optional(z.coerce.number().int().min(1).max(500))
 });
 
+/* ----------------------------------------------------------------- Balances */
+
+export const balanceQuerySchema = z.object({
+    payway: z.string().trim().min(1, 'must not be empty'),
+    address: optional(z.string().trim()),
+    token: optional(z.string().trim())
+});
+
 /**
  * Parses `{ data: ... }` request bodies. Throws ZodError, which the error handler turns into a 400 naming the field.
  */

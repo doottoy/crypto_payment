@@ -22,6 +22,8 @@ import { ApiError, toErrorResponse } from './errors';
 import { getPayoutStore } from '../payouts/store';
 import { toApiPayout } from '../payouts/serialize';
 import { runPayout, type PayoutResult } from '../payouts/run';
+import { getBalance } from '../services/balance.service';
+import { activeBalanceWatcher } from '../balance/watcher';
 import {
     flagOr,
     parseData,
@@ -35,6 +37,7 @@ import {
     evmBatchSendSchema,
     tronMultiSendSchema,
     payoutListQuerySchema,
+    balanceQuerySchema,
     solanaMultiSendSchema,
     solanaIntermediateAtaSchema,
     solanaCreateTokenAccountSchema
@@ -111,6 +114,20 @@ export function createApp(): Express {
             payouts: records.map(toApiPayout),
             next_before: records.length === limit ? records[records.length - 1].createdAt : null
         });
+    });
+
+    /* Balance of an address (EVM, Solana, Tron: native or token) or of the Litecoin node wallet */
+    app.get('/balance', asyncRoute(async (req, res) => {
+        const query = balanceQuerySchema.parse(req.query);
+        res.json(await getBalance(query));
+    }));
+
+    /* What the low-balance watcher (BALANCE_WATCH) last saw */
+    app.get('/balance/watch', (_req: Request, res: Response) => {
+        const watcher = activeBalanceWatcher();
+        res.json(watcher
+            ? { enabled: true, interval_minutes: watcher.intervalMinutes, wallets: watcher.status() }
+            : { enabled: false, interval_minutes: null, wallets: [] });
     });
 
     /* Endpoint for processing single EVM payout transactions */
