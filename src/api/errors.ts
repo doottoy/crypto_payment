@@ -56,6 +56,9 @@ const MAX_MESSAGE_LENGTH = 500;
  */
 const PROCESSING_FAILED = 500;
 
+/* viem InsufficientFundsError and node wordings, matched once a wrapper flattened the error into a message */
+const INSUFFICIENT_FUNDS_WORDING = /insufficient funds|exceeds the balance of the account|insufficient balance/i;
+
 /* Bitcoin Core RPC error codes worth naming (src/rpc/protocol.h) */
 const CORE_RPC_CODES: Record<number, string> = {
     [-3]: 'invalid_request', // RPC_TYPE_ERROR
@@ -153,11 +156,14 @@ export function toErrorResponse(err: unknown): { status: number; body: ErrorBody
         };
     }
 
-    if (errorChain(err).some((e) => e instanceof InsufficientFundsError)) {
-        return { status: PROCESSING_FAILED, body: body('insufficient_funds', messageOf(err)) };
+    const message = messageOf(err);
+
+    // The EVM services fail over on "insufficient funds" and then wrap it in "All RPC providers failed: ...",
+    // so the wording is checked too, before the provider check below
+    if (errorChain(err).some((e) => e instanceof InsufficientFundsError) || INSUFFICIENT_FUNDS_WORDING.test(message)) {
+        return { status: PROCESSING_FAILED, body: body('insufficient_funds', message) };
     }
 
-    const message = messageOf(err);
     if (/all rpc providers failed/i.test(message)) {
         return { status: PROCESSING_FAILED, body: body('rpc_unavailable', message) };
     }

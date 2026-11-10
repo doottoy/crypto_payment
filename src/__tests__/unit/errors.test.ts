@@ -31,6 +31,14 @@ describe('toErrorResponse', () => {
         expect(toErrorResponse(err).body.code).to.equal('insufficient_funds');
     });
 
+    it('names insufficient funds even after the provider failover wrapped it', () => {
+        // the exact message a Base Sepolia payout over the balance produced
+        const wrapped = new Error('All RPC providers failed during tx preparation: The total cost (gas * gas fee + value) of executing this transaction exceeds the balance of the account.');
+
+        expect(toErrorResponse(wrapped)).to.deep.include({ status: 500 });
+        expect(toErrorResponse(wrapped).body.code).to.equal('insufficient_funds');
+    });
+
     it('names exhausted providers rpc_unavailable', () => {
         const res = toErrorResponse(new Error('All RPC providers failed for payway = eth: timeout'));
 
