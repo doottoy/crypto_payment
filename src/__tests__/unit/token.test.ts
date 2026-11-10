@@ -184,6 +184,25 @@ describe('token routes end to end', () => {
         expect(call.args).to.deep.equal([to, 2000000n]);
     });
 
+    it('skips a provider answering HTTP 500, as drpc did on Base Sepolia', async () => {
+        const broken = createServer((_req, res) => {
+            res.writeHead(500, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ message: 'Temporary internal error. Please retry', code: 19 }));
+        });
+        await new Promise<void>((resolve) => { broken.listen(0, '127.0.0.1', resolve); });
+        Const.EVM_RPC_PROVIDERS.base_eth = [`http://127.0.0.1:${(broken.address() as AddressInfo).port}`, chain.url];
+        try {
+            const contract = privateKeyToAccount(generatePrivateKey()).address;
+            const res = await post('/token/evm/mint', { payway: 'base_eth', private_key: key, contract, to: contract, amount: '1' });
+
+            expect(res.status).to.equal(200);
+            expect(parseTransaction(chain.broadcasts[chain.broadcasts.length - 1]).to?.toLowerCase()).to.equal(contract.toLowerCase());
+        } finally {
+            Const.EVM_RPC_PROVIDERS.base_eth = [chain.url];
+            await new Promise<void>((resolve) => { broken.close(() => resolve()); });
+        }
+    });
+
     it('rejects a faucet deploy without faucet_amount and an empty symbol', async () => {
         const faucet = await post('/token/evm/deploy', { payway: 'base_eth', private_key: key, preset: 'faucet', name: 'X', symbol: 'X' });
         const empty = await post('/token/evm/deploy', { payway: 'base_eth', private_key: key, name: 'X', symbol: '' });

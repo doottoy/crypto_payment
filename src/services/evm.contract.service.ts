@@ -1,10 +1,10 @@
 /* External dependencies */
-import { keccak256, type Abi, type Address, type Hex, type TransactionReceipt } from 'viem';
+import { createPublicClient, http, keccak256, type Abi, type Address, type Hex, type PublicClient, type TransactionReceipt } from 'viem';
 
 /* Internal dependencies */
 import { logger } from '../utils/logger';
 import { nonceAllocator } from '../utils/nonce-allocator';
-import { EvmNonceTakenError } from '../utils/evm';
+import { EvmNonceTakenError, isEvmNetworkError, isEvmProviderError } from '../utils/evm';
 
 import { BaseEvmService } from './base.evm.service';
 
@@ -23,14 +23,31 @@ export class EvmContractService extends BaseEvmService {
         return this.account.address;
     }
 
+    /**
+     * Runs `action` on the first provider that answers it. A provider failing the request itself (HTTP error, timeout,
+     * refusal) is skipped like in the payouts; a verdict on the call (a revert) is thrown at once.
+     */
+    private async onAnyProvider<T>(action: (client: PublicClient, url: string) => Promise<T>): Promise<T> {
+        let lastError: any;
+        for (const url of this.rpcUrls) {
+            const client = createPublicClient({ chain: this.chain, transport: http(url, { timeout: 10000 }) }) as PublicClient;
+            try {
+                return await action(client, url);
+            } catch (error: any) {
+                lastError = error;
+                if (!isEvmNetworkError(error) && !isEvmProviderError(error)) throw error;
+                logger.warn(this.payway.toUpperCase(), `⚠️[PROVIDER_SKIPPED][${url}][MSG:${error?.shortMessage || error?.message || error}]`);
+            }
+        }
+        throw new Error(`All RPC providers failed for payway = ${this.payway}: ${lastError?.shortMessage || lastError?.message || lastError}`);
+    }
+
     async read<T>(address: Address, abi: Abi, functionName: string, args: readonly unknown[] = []): Promise<T> {
-        const client = await this.getFirstHealthyClient();
-        return (await client.readContract({ address, abi, functionName, args } as any)) as T;
+        return this.onAnyProvider(async (client) => (await client.readContract({ address, abi, functionName, args } as any)) as T);
     }
 
     async receiptOf(hash: Hex): Promise<TransactionReceipt> {
-        const client = await this.getFirstHealthyClient();
-        return client.getTransactionReceipt({ hash });
+        return this.onAnyProvider((client) => client.getTransactionReceipt({ hash }));
     }
 
     async sendAndConfirm(params: { to?: Address; data: Hex; value?: bigint; label: string; requestId?: string }): Promise<{ txHash: Hex; receipt: TransactionReceipt }> {
@@ -39,12 +56,15 @@ export class EvmContractService extends BaseEvmService {
         const network = this.payway.toUpperCase();
         const reqInfo = requestId ? `[${requestId}]` : '';
 
-        const client = await this.getFirstHealthyClient();
         const sender = this.account.address;
-        const estimated = await client.estimateGas({ account: this.account, to, data, value });
-        // 20% over the node estimate; never below it (Arbitrum estimates carry the L1 data component)
-        const gas = (estimated * 120n) / 100n;
-        const chainId = await client.getChainId();
+        // Nothing is signed yet, so a provider failing any preparation read is skipped for the next one
+        const { client, gas, chainId, fees } = await this.onAnyProvider(async (candidate) => ({
+            client: candidate,
+            // 20% over the node estimate; never below it (Arbitrum estimates carry the L1 data component)
+            gas: ((await candidate.estimateGas({ account: this.account, to, data, value })) * 120n) / 100n,
+            chainId: await candidate.getChainId(),
+            fees: await this.buildInitialFees(candidate)
+        }));
 
         let lease = await nonceAllocator.reserveNonce(client, sender, chainId);
         const ownHashes = new Set<Hex>();
@@ -52,7 +72,6 @@ export class EvmContractService extends BaseEvmService {
         let success = false;
 
         try {
-            const fees = await this.buildInitialFees(client);
             const maxAttempts = 4;
 
             for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
