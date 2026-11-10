@@ -13,12 +13,11 @@ import { getEvmRpcUrlsForPayway } from '../utils/modules';
 import { Const } from '../constants/const';
 
 /*
- * Request schemas. They are deliberately lenient where the service always was: unknown fields are ignored,
- * null / '' mean "not provided", amounts may come as strings or numbers. They only reject input that could never
- * have produced a payout, so the caller gets a 400 with the field name instead of a hung request or a 500.
+ * Request schemas. Rule: a schema only rejects input that already failed before it existed (one step later, often
+ * as a hung request or a 500). Anything the services accepted keeps working with the same meaning: unknown fields are
+ * ignored, null / '' mean "not provided", flags keep JavaScript truthiness, amounts are checked per chain exactly as
+ * loosely as that chain's code parsed them.
  */
-
-const DECIMAL = /^\d+(\.\d+)?$/;
 
 const EVM_PAYWAYS: readonly string[] = [
     ...Const.ETH_PAYWAY,
@@ -28,16 +27,68 @@ const EVM_PAYWAYS: readonly string[] = [
     ...Const.POLYGON_PAYWAY
 ];
 
-/** Number to a plain decimal string: String(0.0000001) would give "1e-7", which no amount parser accepts */
-export function toPlainDecimal(value: number): string {
-    if (!Number.isFinite(value)) return String(value);
-    return value.toLocaleString('en-US', { useGrouping: false, maximumFractionDigits: 20 });
+const PLAIN_DECIMAL = /^\d*\.?\d*$/;
+
+/**
+ * "1e-7" / "1.5E+3" to a plain decimal, moving the point on the digits (no float rounding).
+ * Anything that is not exponent notation comes back unchanged.
+ */
+export function expandExponent(value: string): string {
+    const match = value.match(/^(\d*)(?:\.(\d*))?[eE]([+-]?\d+)$/);
+    if (!match || (!match[1] && !match[2])) return value;
+
+    const intDigits = match[1] ?? '';
+    const digits = intDigits + (match[2] ?? '');
+    const point = intDigits.length + parseInt(match[3], 10);
+
+    let plain: string;
+    if (point <= 0) {
+        plain = `0.${'0'.repeat(-point)}${digits}`;
+    } else if (point >= digits.length) {
+        plain = digits + '0'.repeat(point - digits.length);
+    } else {
+        plain = `${digits.slice(0, point)}.${digits.slice(point)}`;
+    }
+    return plain.replace(/^0+(?=\d)/, '');
+}
+
+/** A JSON number or numeric string as a plain decimal string: String(1e-7) is "1e-7", which no parser here accepts */
+export function toPlainDecimal(value: string | number): string {
+    return expandExponent(typeof value === 'number' ? String(value) : value.trim());
 }
 
 function fractionDigits(value: string): number {
-    const fraction = value.split('.')[1] ?? '';
-    return fraction.replace(/0+$/, '').length;
+    return (value.split('.')[1] ?? '').replace(/0+$/, '').length;
 }
+
+const numeric = z.union([z.string(), z.number()]);
+const isPlainDecimal = (v: string) => PLAIN_DECIMAL.test(v) && /\d/.test(v);
+const AMOUNT_MESSAGE = 'must be a non-negative decimal number such as "0.1"';
+
+/** EVM: the forms viem parseUnits took ("1", "1.5", ".5", "5."); a blank amount meant 0 there and still does */
+export const evmAmount = numeric
+    .transform((v) => {
+        const plain = toPlainDecimal(v);
+        return plain === '' ? '0' : plain;
+    })
+    .refine(isPlainDecimal, AMOUNT_MESSAGE);
+
+/** Tron: base units are built by splitting on '.', so plain decimals (or base-unit integers in the legacy shape) */
+export const tronAmount = numeric.transform(toPlainDecimal).refine(isPlainDecimal, AMOUNT_MESSAGE);
+
+/** Solana: the services run parseFloat, so whatever it reads as a non-negative number passes through unchanged */
+export const solanaAmount = numeric
+    .transform((v) => (typeof v === 'number' ? String(v) : v.trim()))
+    .refine((v) => {
+        const parsed = parseFloat(v);
+        return Number.isFinite(parsed) && parsed >= 0;
+    }, 'must be a non-negative number such as "0.1"');
+
+/** Litecoin Core: non-negative, at most 8 decimal places (the node refused anything else) */
+export const ltcAmount = numeric
+    .transform(toPlainDecimal)
+    .refine(isPlainDecimal, AMOUNT_MESSAGE)
+    .refine((v) => fractionDigits(v) <= 8, 'must have at most 8 decimal places');
 
 /** null, undefined and blank strings all mean "not provided" */
 function optional<T extends z.ZodTypeAny>(schema: T) {
@@ -49,17 +100,27 @@ function optional<T extends z.ZodTypeAny>(schema: T) {
 
 const text = z.string().trim().min(1, 'must not be empty');
 
-export const amount = z.union([z.string(), z.number()])
-    .transform((v) => (typeof v === 'number' ? toPlainDecimal(v) : v.trim()))
-    .refine((v) => DECIMAL.test(v), 'must be a non-negative decimal number such as "0.1"');
+/* Free-form labels: numbers were fine in log lines, so they still are */
+const label = optional(numeric.transform((v) => String(v).trim()));
 
-const flag = z.preprocess((v) => (v === 'true' ? true : v === 'false' ? false : v), z.boolean());
+const requestId = label;
 
-const requestId = optional(z.string().trim().max(200, 'must be at most 200 characters'));
+/**
+ * Flags keep the JavaScript truthiness the handlers always applied: absent means the default, anything else is
+ * Boolean(value), so null is false and "false" (a non-empty string) is true, exactly as before.
+ */
+const truthy = z.unknown().optional();
+
+export function flagOr(value: unknown, fallback: boolean): boolean {
+    return value === undefined ? fallback : Boolean(value);
+}
+
 
 function isSolanaAddress(value: string): boolean {
     try {
-        return new PublicKey(value).toBase58() === value;
+        // eslint-disable-next-line no-new
+        new PublicKey(value);
+        return true;
     } catch {
         return false;
     }
@@ -99,51 +160,46 @@ const evmPayway = z.string().trim().toLowerCase()
 export const evmPayoutSchema = z.object({
     payway: evmPayway,
     payee_address: evmAddress,
-    amount,
+    amount: evmAmount,
     contract: optional(evmAddress),
-    currency: optional(z.string().trim()),
+    currency: label,
     private_key: hexPrivateKey,
-    wait_for_receipt: optional(flag),
+    wait_for_receipt: truthy,
     request_id: requestId
 });
 
 export const evmMultiSendSchema = z.object({
     payway: evmPayway,
-    recipients: z.array(z.object({ address: evmAddress, amount })).min(1, 'must list at least one recipient'),
+    recipients: z.array(z.object({ address: evmAddress, amount: evmAmount })),
     private_key: hexPrivateKey,
-    currency: optional(z.string().trim()),
+    currency: label,
     multi_send_contract: evmAddress,
-    wait_for_receipt: optional(flag),
+    wait_for_receipt: truthy,
     request_id: requestId
 });
 
 export const evmBatchSendSchema = z.object({
     payway: evmPayway,
     private_key: hexPrivateKey,
-    currency: optional(z.string().trim()),
+    currency: label,
     batch_send_contract: evmAddress,
-    native_transfers: optional(z.array(z.object({ to: evmAddress, amount }))),
-    token_transfers: optional(z.array(z.object({ token_address: evmAddress, to: evmAddress, amount }))),
+    native_transfers: optional(z.array(z.object({ to: evmAddress, amount: evmAmount }))),
+    token_transfers: optional(z.array(z.object({ token_address: evmAddress, to: evmAddress, amount: evmAmount }))),
     request_id: requestId
-}).refine(
-    (d) => (d.native_transfers?.length ?? 0) + (d.token_transfers?.length ?? 0) > 0,
-    { message: 'needs at least one native or token transfer', path: ['native_transfers'] }
-);
+});
 
+/** `destination` is checked in the route first, keeping its original error message */
 export const bridgeSchema = z.object({
-    destination: z.string().trim().toLowerCase()
-        .refine((d) => Const.BRIDGE_DESTINATIONS.includes(d), `is not a supported bridge destination (supported: ${Const.BRIDGE_DESTINATIONS.join(', ')})`),
+    destination: z.string().trim().toLowerCase(),
     private_key: hexPrivateKey,
-    amount,
+    amount: evmAmount,
     payee_address: optional(evmAddress),
-    currency: optional(z.string().trim()),
-    wait_for_receipt: optional(flag),
+    currency: label,
+    wait_for_receipt: truthy,
     request_id: requestId
 });
 
 /* ----------------------------------------------------------------- Litecoin */
-
-const ltcAmount = amount.refine((v) => fractionDigits(v) <= 8, 'must have at most 8 decimal places');
 
 export const ltcPayoutSchema = z.object({
     // The method used to be forwarded to the node as is; only the payout call is allowed now
@@ -151,19 +207,19 @@ export const ltcPayoutSchema = z.object({
     payee_address: text,
     amount: ltcAmount,
     payway: optional(text),
-    currency: optional(text),
+    currency: label,
     request_id: requestId
 });
 
 export const ltcMultiSendSchema = z.object({
     // Always sendmany; the field is accepted for compatibility and ignored
-    method: optional(z.string()),
+    method: z.unknown().optional(),
     payway: optional(text),
-    currency: optional(text),
+    currency: label,
+    // Shapes only: the service validates each amount itself (parseFloat, > 0) exactly as before
     recipients: z.union([
-        z.array(z.object({ address: text, amount: ltcAmount })).min(1, 'must list at least one recipient'),
-        z.record(z.string(), z.union([z.string(), z.number()]))
-            .refine((map) => Object.keys(map).length > 0, 'must list at least one recipient')
+        z.array(z.object({ address: z.string(), amount: numeric })),
+        z.record(z.string(), numeric)
     ]),
     comment: optional(z.string()),
     minconf: optional(z.number().int().min(0)),
@@ -176,11 +232,11 @@ export const ltcMultiSendSchema = z.object({
 export const solanaPayoutSchema = z.object({
     payway: optional(text),
     private_key: solanaPrivateKey,
-    currency: optional(z.string().trim()),
-    amount,
+    currency: label,
+    amount: solanaAmount,
     payee_address: solanaAddress,
     token_mint: optional(solanaAddress),
-    is_token_2022: optional(flag),
+    is_token_2022: truthy,
     request_id: requestId
 });
 
@@ -190,9 +246,9 @@ export const solanaIntermediateAtaSchema = solanaPayoutSchema.extend({
 
 export const solanaMultiSendSchema = z.object({
     private_key: solanaPrivateKey,
-    currency: optional(z.string().trim()),
+    currency: label,
     token_mint: optional(solanaAddress),
-    recipients: z.array(z.object({ address: solanaAddress, amount })).min(1, 'must list at least one recipient'),
+    recipients: z.array(z.object({ address: solanaAddress, amount: solanaAmount })),
     request_id: requestId
 });
 
@@ -209,9 +265,9 @@ export const solanaCreateTokenAccountSchema = z.object({
 export const tronPayoutSchema = z.object({
     payway: text,
     private_key: hexPrivateKey,
-    currency: optional(z.string().trim()),
+    currency: label,
     payee_address: tronAddress,
-    amount,
+    amount: tronAmount,
     contract: optional(tronAddress),
     isLegacy: z.boolean()
 });
@@ -219,9 +275,9 @@ export const tronPayoutSchema = z.object({
 export const tronMultiSendSchema = z.object({
     payway: text,
     private_key: hexPrivateKey,
-    currency: optional(z.string().trim()),
+    currency: label,
     multi_send_contract: tronAddress,
-    recipients: z.array(z.object({ address: tronAddress, amount })).min(1, 'must list at least one recipient'),
+    recipients: z.array(z.object({ address: tronAddress, amount: tronAmount })),
     token_contract: optional(tronAddress),
     request_id: requestId
 });

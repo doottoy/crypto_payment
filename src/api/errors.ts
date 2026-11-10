@@ -49,13 +49,20 @@ export interface ErrorBody {
 
 const MAX_MESSAGE_LENGTH = 500;
 
-/* Bitcoin Core RPC error codes the caller can fix (src/rpc/protocol.h) */
-const CORE_RPC_CLIENT_ERRORS: Record<number, { status: number; code: string }> = {
-    [-3]: { status: 400, code: 'invalid_request' }, // RPC_TYPE_ERROR
-    [-5]: { status: 400, code: 'invalid_address' }, // RPC_INVALID_ADDRESS_OR_KEY
-    [-6]: { status: 400, code: 'insufficient_funds' }, // RPC_WALLET_INSUFFICIENT_FUNDS
-    [-8]: { status: 400, code: 'invalid_request' }, // RPC_INVALID_PARAMETER
-    [-18]: { status: 400, code: 'wallet_not_found' } // RPC_WALLET_NOT_FOUND
+/*
+ * HTTP statuses stay the ones the service always answered with, so existing clients see no change:
+ * 400 for a request that cannot be read, 409 for a request_id conflict, 500 for anything that failed while
+ * processing. `code` is what tells those failures apart.
+ */
+const PROCESSING_FAILED = 500;
+
+/* Bitcoin Core RPC error codes worth naming (src/rpc/protocol.h) */
+const CORE_RPC_CODES: Record<number, string> = {
+    [-3]: 'invalid_request', // RPC_TYPE_ERROR
+    [-5]: 'invalid_address', // RPC_INVALID_ADDRESS_OR_KEY
+    [-6]: 'insufficient_funds', // RPC_WALLET_INSUFFICIENT_FUNDS
+    [-8]: 'invalid_request', // RPC_INVALID_PARAMETER
+    [-18]: 'wallet_not_found' // RPC_WALLET_NOT_FOUND
 };
 
 /**
@@ -126,34 +133,34 @@ export function toErrorResponse(err: unknown): { status: number; body: ErrorBody
 
     if (err instanceof EvmTransactionRevertedError) {
         return {
-            status: 500,
+            status: PROCESSING_FAILED,
             body: body('tx_reverted', messageOf(err), { tx_id: err.txHash, block_number: err.blockNumber, gas_used: err.gasUsed })
         };
     }
 
     if (err instanceof EvmNonceTakenError) {
         return {
-            status: 500,
+            status: PROCESSING_FAILED,
             body: body('nonce_taken', messageOf(err), { tx_id: err.txHash, foreign_tx_id: err.foreignTxHash, nonce: err.nonce })
         };
     }
 
     if (err instanceof CoreRpcError) {
-        const mapped = err.rpcCode === undefined ? undefined : CORE_RPC_CLIENT_ERRORS[err.rpcCode];
+        const code = (err.rpcCode === undefined ? undefined : CORE_RPC_CODES[err.rpcCode]) ?? 'node_error';
         return {
-            status: mapped?.status ?? 502,
-            body: body(mapped?.code ?? 'node_error', messageOf(err), err.rpcCode === undefined ? undefined : { rpc_code: err.rpcCode })
+            status: PROCESSING_FAILED,
+            body: body(code, messageOf(err), err.rpcCode === undefined ? undefined : { rpc_code: err.rpcCode })
         };
     }
 
     if (errorChain(err).some((e) => e instanceof InsufficientFundsError)) {
-        return { status: 400, body: body('insufficient_funds', messageOf(err)) };
+        return { status: PROCESSING_FAILED, body: body('insufficient_funds', messageOf(err)) };
     }
 
     const message = messageOf(err);
     if (/all rpc providers failed/i.test(message)) {
-        return { status: 502, body: body('rpc_unavailable', message) };
+        return { status: PROCESSING_FAILED, body: body('rpc_unavailable', message) };
     }
 
-    return { status: 500, body: body('internal_error', message) };
+    return { status: PROCESSING_FAILED, body: body('internal_error', message) };
 }

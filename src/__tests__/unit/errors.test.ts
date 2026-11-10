@@ -5,7 +5,7 @@ import { Keypair } from '@solana/web3.js';
 import { InsufficientFundsError, BaseError } from 'viem';
 
 import { CoreRpcError, ApiError, sanitizeErrorMessage, toErrorResponse } from '../../api/errors';
-import { amount, toPlainDecimal, solanaPayoutSchema, evmPayoutSchema } from '../../api/schemas';
+import { evmAmount, solanaPayoutSchema, evmPayoutSchema } from '../../api/schemas';
 import { IdempotencyConflictError } from '../../utils/idempotency';
 
 describe('toErrorResponse', () => {
@@ -26,21 +26,23 @@ describe('toErrorResponse', () => {
     it('finds insufficient funds anywhere in the cause chain', () => {
         const err = new Error('send failed', { cause: new InsufficientFundsError() });
 
-        expect(toErrorResponse(err).status).to.equal(400);
+        // processing failures keep the 500 the service always answered with; `code` names them
+        expect(toErrorResponse(err).status).to.equal(500);
         expect(toErrorResponse(err).body.code).to.equal('insufficient_funds');
     });
 
-    it('maps exhausted providers to 502 rpc_unavailable', () => {
+    it('names exhausted providers rpc_unavailable', () => {
         const res = toErrorResponse(new Error('All RPC providers failed for payway = eth: timeout'));
 
-        expect(res).to.deep.include({ status: 502 });
+        expect(res).to.deep.include({ status: 500 });
         expect(res.body.code).to.equal('rpc_unavailable');
     });
 
-    it('maps node error codes the caller can fix to 400', () => {
+    it('names node errors by their RPC code', () => {
         expect(toErrorResponse(new CoreRpcError('sendtoaddress', -6, 'Insufficient funds')).body.code).to.equal('insufficient_funds');
-        expect(toErrorResponse(new CoreRpcError('sendtoaddress', -5, 'Invalid address')).status).to.equal(400);
-        expect(toErrorResponse(new CoreRpcError('sendtoaddress', -1, 'boom')).status).to.equal(502);
+        expect(toErrorResponse(new CoreRpcError('sendtoaddress', -5, 'Invalid address')).body.code).to.equal('invalid_address');
+        expect(toErrorResponse(new CoreRpcError('sendtoaddress', -1, 'boom'))).to.deep.include({ status: 500 });
+        expect(toErrorResponse(new CoreRpcError('sendtoaddress', -1, 'boom')).body.code).to.equal('node_error');
     });
 
     it('hides internals of unknown errors behind internal_error without a stack', () => {
@@ -76,11 +78,10 @@ describe('sanitizeErrorMessage', () => {
 
 describe('request schemas', () => {
     it('turns numeric amounts into plain decimals', () => {
-        expect(toPlainDecimal(0.0000001)).to.equal('0.0000001');
-        expect(amount.parse(1.5)).to.equal('1.5');
-        expect(amount.parse(' 2 ')).to.equal('2');
-        expect(amount.safeParse('-1').success).to.equal(false);
-        expect(amount.safeParse('1e-7').success).to.equal(false);
+        expect(evmAmount.parse(0.0000001)).to.equal('0.0000001');
+        expect(evmAmount.parse(1.5)).to.equal('1.5');
+        expect(evmAmount.parse(' 2 ')).to.equal('2');
+        expect(evmAmount.safeParse('-1').success).to.equal(false);
     });
 
     it('treats null and blank optional fields as not provided', () => {
@@ -88,12 +89,10 @@ describe('request schemas', () => {
             private_key: bs58.encode(Keypair.generate().secretKey),
             amount: '0.1',
             payee_address: '11111111111111111111111111111111',
-            token_mint: null,
-            is_token_2022: 'false'
+            token_mint: null
         });
 
         expect(parsed.token_mint).to.equal(undefined);
-        expect(parsed.is_token_2022).to.equal(false);
     });
 
     it('lowercases the payway so ETH works like eth', () => {

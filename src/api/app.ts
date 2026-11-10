@@ -17,9 +17,11 @@ import { SolanaMultiPayoutService } from '../services/solana.multi-payout.servic
 
 /* Internal dependencies */
 import { logger } from '../utils/logger';
+import { Const } from '../constants/const';
 import { requestIdRegistry } from '../utils/idempotency';
 import { ApiError, toErrorResponse } from './errors';
 import {
+    flagOr,
     parseData,
     bridgeSchema,
     ltcPayoutSchema,
@@ -83,7 +85,7 @@ export function createApp(): Express {
                 data.amount,
                 data.contract as string,
                 data.currency ?? '',
-                data.wait_for_receipt ?? true,
+                flagOr(data.wait_for_receipt, true),
                 data.request_id
             );
         });
@@ -101,7 +103,7 @@ export function createApp(): Express {
                 data.recipients,
                 data.multi_send_contract,
                 data.currency ?? '',
-                data.wait_for_receipt ?? true,
+                flagOr(data.wait_for_receipt, true),
                 data.request_id
             );
         });
@@ -128,6 +130,16 @@ export function createApp(): Express {
 
     /* Endpoint for native ETH L1->L2 bridge deposits (Sepolia -> Base/Arbitrum Sepolia) */
     app.post('/bridge/eth', asyncRoute(async (req, res) => {
+        // Checked first and worded as it always was, so clients matching this 400 keep working
+        const rawDestination = req.body?.data?.destination;
+        if (req.body?.data && typeof req.body.data === 'object'
+            && !Const.BRIDGE_DESTINATIONS.includes(String(rawDestination ?? '').trim().toLowerCase())) {
+            throw new ApiError(
+                400,
+                'invalid_request',
+                `Unsupported bridge destination: ${rawDestination}. Supported: ${Const.BRIDGE_DESTINATIONS.join(', ')}`
+            );
+        }
         const data = parseData(bridgeSchema, req.body);
 
         const txHash = await requestIdRegistry.run('bridge/eth', data.request_id, req.body.data, async () => {
@@ -137,7 +149,7 @@ export function createApp(): Express {
                 data.destination as BridgeDestination,
                 data.amount,
                 data.payee_address,
-                data.wait_for_receipt ?? true,
+                flagOr(data.wait_for_receipt, true),
                 data.request_id
             );
         });
@@ -189,7 +201,7 @@ export function createApp(): Express {
             data.amount,
             data.currency ?? '',
             data.token_mint as string,
-            data.is_token_2022 ?? false
+            flagOr(data.is_token_2022, false)
         );
         res.json({ tx_id: txHash });
     }));
@@ -214,7 +226,7 @@ export function createApp(): Express {
             data.amount,
             data.token_mint,
             data.currency ?? '',
-            data.is_token_2022 ?? false,
+            flagOr(data.is_token_2022, false),
             data.request_id
         );
         res.json({ tx_id: txHash });

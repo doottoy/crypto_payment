@@ -104,15 +104,6 @@ describe('HTTP API', () => {
             expect(res.body.details[0].path).to.equal('data.payway');
         });
 
-        it('rejects a batch without transfers', async () => {
-            const res = await post('/payout/evm/batch_send', {
-                data: { payway: 'eth', private_key: VALID_EVM_KEY, batch_send_contract: EVM_PAYEE }
-            });
-
-            expect(res.status).to.equal(400);
-            expect(res.body.error).to.contain('at least one');
-        });
-
         it('answers malformed JSON with invalid_json', async () => {
             const res = await post('/payout/evm', '{"data": ');
 
@@ -130,13 +121,13 @@ describe('HTTP API', () => {
             expect(res.text).to.not.contain(secret);
         });
 
-        it('keeps the bridge destination error a 400 with a string error', async () => {
+        it('keeps the bridge destination error word for word', async () => {
             const res = await post('/bridge/eth', {
                 data: { destination: 'zksync', amount: '0.01', private_key: VALID_EVM_KEY }
             });
 
             expect(res.status).to.equal(400);
-            expect(res.body.error).to.be.a('string').and.contain('destination');
+            expect(res.body.error).to.equal('Unsupported bridge destination: zksync. Supported: base, arbitrum');
         });
 
         it('validates the tron payload in both shapes', async () => {
@@ -191,7 +182,7 @@ describe('HTTP API', () => {
 
             const res = await post('/payout/ltc', { data: payout });
 
-            expect(res.status).to.equal(400);
+            expect(res.status).to.equal(500);
             expect(res.body.code).to.equal('insufficient_funds');
             expect(alerts).to.have.length(1);
             expect(alerts[0]).to.contain('Insufficient funds');
@@ -202,7 +193,7 @@ describe('HTTP API', () => {
 
             const res = await post('/payout/ltc', { data: payout });
 
-            expect(res.status).to.equal(502);
+            expect(res.status).to.equal(500);
             expect(res.body.code).to.equal('node_error');
         });
 
@@ -213,7 +204,7 @@ describe('HTTP API', () => {
                 data: { recipients: [{ address: 'bad', amount: '0.1' }], payway: 'ltc', currency: 'LTC' }
             });
 
-            expect(res.status).to.equal(400);
+            expect(res.status).to.equal(500);
             expect(res.body.code).to.equal('invalid_address');
             expect(nodeCalls[0].method).to.equal('sendmany');
             expect(alerts).to.have.length(1);
