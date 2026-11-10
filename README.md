@@ -52,6 +52,10 @@ PAYOUT_RETENTION_DAYS=30
 CALLBACK_SECRET=
 CALLBACK_ALLOW_PRIVATE=false
 
+# Low-balance alerts (optional)
+BALANCE_WATCH=[{"payway":"base_eth","address":"0x...","min":"0.05","label":"QA wallet"}]
+BALANCE_WATCH_INTERVAL_MINUTES=15
+
 # Test automation (optional)
 AUTOMATION_EVM_PRIVATE_KEY=...
 AUTOMATION_SERVICE_PRIVATE_KEY=...
@@ -313,6 +317,30 @@ Deposits native ETH from Sepolia (L1) to an L2: Base Sepolia or OP Sepolia (OP S
 - Omit `payee_address` to bridge to the sender's own address on the L2; provide it to credit a different recipient. (For Arbitrum with a custom recipient the service uses a retryable ticket, reading the submission fee and L2 gas price on-chain.)
 - The returned `tx_id` is the **L1 deposit hash**; funds arrive on the L2 asynchronously (≈1-3 min for Base and OP Sepolia, ≈10-15 min for Arbitrum).
 - `request_id` gives the same idempotency behaviour as the EVM payout endpoints.
+
+## Balances
+`GET /balance?payway=...&address=...&token=...` reads a balance. Omit `token` for the native coin.
+```json
+{
+  "chain": "evm",
+  "payway": "base_eth",
+  "address": "0x...",
+  "token": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+  "symbol": "USDC",
+  "decimals": 6,
+  "balance": "12.5",
+  "raw": "12500000"
+}
+```
+
+| `payway` | Reads |
+|---|---|
+| any EVM payway (`eth`, `base_eth`, `op_eth`, ...) | native coin or an ERC20 `token` |
+| `sol`, `solana`, `spl` | SOL, or the sum of every token account of the `token` mint (SPL and Token-2022) |
+| `tron`, `trx`, `trc20` | TRX or a TRC20 `token` |
+| `ltc`, `litecoin` | the Litecoin node wallet; `address` and `token` must be omitted |
+
+**Low-balance alerts.** List wallets in `BALANCE_WATCH` (JSON array of `{ "payway", "address", "token", "min", "label" }`). Every `BALANCE_WATCH_INTERVAL_MINUTES` (default 15) the service reads each one and sends a Telegram alert once when it drops below `min`, and once more when it is back above. A failed read is logged, not alerted. `GET /balance/watch` shows what the watcher last saw. A broken `BALANCE_WATCH` is logged at start and the watcher stays off; the service still starts.
 
 ## Payout journal
 Every payout is recorded in `data/payouts.jsonl` (`DATA_DIR`). In Docker the file lives in the `payout-data` volume, so it survives redeploys.
