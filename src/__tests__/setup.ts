@@ -6,3 +6,6 @@
 for (const key of ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'RPC_URL', 'RPC_USER', 'RPC_PASS']) {
     process.env[key] = '';
 }
+
+// The payout journal lives in memory during tests, nothing is written under ./data
+process.env.DATA_DIR = ':memory:';

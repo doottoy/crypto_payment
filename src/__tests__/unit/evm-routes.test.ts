@@ -8,9 +8,10 @@ import { keccak256, numberToHex, parseTransaction, type Hex } from 'viem';
 import { createApp } from '../../api/app';
 import { modules } from '../../utils/modules';
 import { Const } from '../../constants/const';
+import { getPayoutStore } from '../../payouts/store';
 
 /*
- * End to end through the HTTP routes: request -> validation -> service -> JSON-RPC -> response.
+ * End to end through the HTTP routes: request -> validation -> journal -> service -> JSON-RPC -> response.
  * The provider lists in Const point at a local mock chain that mines every broadcast at once, so these tests prove
  * the routes still drive the real EVM services the way they did before the API layer changed.
  */
@@ -138,6 +139,7 @@ describe('EVM routes end to end', () => {
 
         expect(res.status).to.equal(200);
         expect(res.body).to.deep.equal({ tx_id: keccak256(chain.broadcasts[chain.broadcasts.length - 1]) });
+        expect(getPayoutStore().get(res.headers.get('x-payout-id') as string)?.status).to.equal('succeeded');
     });
 
     it('pays an ERC20 token when a contract is given', async () => {
@@ -149,17 +151,28 @@ describe('EVM routes end to end', () => {
         expect(sent.data?.startsWith('0xa9059cbb')).to.equal(true); // transfer(address,uint256)
     });
 
-    it('answers at once with wait_for_receipt false', async () => {
+    it('answers at once with wait_for_receipt false and settles the journal in the background', async () => {
         const res = await post('/payout/evm', { payway: 'base_eth', payee_address: PAYEE, amount: '0.000001', private_key: key, wait_for_receipt: false });
+        const payoutId = res.headers.get('x-payout-id') as string;
 
         expect(res.status).to.equal(200);
-        expect(res.body).to.deep.equal({ tx_id: keccak256(chain.broadcasts[chain.broadcasts.length - 1]) });
+        expect(res.body.tx_id).to.match(/^0x[0-9a-f]{64}$/);
+        await new Promise<void>((resolve, reject) => {
+            const started = Date.now();
+            const tick = () => {
+                if (getPayoutStore().get(payoutId)?.status === 'succeeded') return resolve();
+                if (Date.now() - started > 15000) return reject(new Error('background receipt wait did not settle'));
+                setTimeout(tick, 50);
+            };
+            tick();
+        });
     });
 
     it('keeps the old meaning of wait_for_receipt: null (no wait)', async () => {
         const res = await post('/payout/evm', { payway: 'base_eth', payee_address: PAYEE, amount: '0.000001', private_key: key, wait_for_receipt: null });
 
         expect(res.status).to.equal(200);
+        expect(getPayoutStore().get(res.headers.get('x-payout-id') as string)?.status).to.be.oneOf(['submitted', 'succeeded']);
     });
 
     it('multi-sends through the contract', async () => {

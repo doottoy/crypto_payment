@@ -162,6 +162,12 @@ export class TronPayoutService {
 
         const raw = body as Record<string, unknown>;
         const data = typeof raw.data === 'object' && raw.data !== null ? (raw.data as Record<string, unknown>) : raw;
+        // Shared by both shapes: idempotency, completion callback and the receipt wait
+        const options = {
+            request_id: data.request_id,
+            callback_url: data.callback_url,
+            wait_for_receipt: data.wait_for_receipt
+        };
 
         if ('to' in data && !('payee_address' in data)) {
             const legacy = data as TronLegacyPayoutRequestBody;
@@ -174,7 +180,8 @@ export class TronPayoutService {
                 payee_address: legacy.to,
                 amount: legacy.amount,
                 contract,
-                isLegacy: true
+                isLegacy: true,
+                ...options
             };
         }
 
@@ -187,7 +194,8 @@ export class TronPayoutService {
             payee_address: current.payee_address,
             amount: current.amount,
             contract: current.contract,
-            isLegacy: false
+            isLegacy: false,
+            ...options
         };
     }
 

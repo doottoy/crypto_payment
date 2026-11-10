@@ -115,6 +115,17 @@ export function flagOr(value: unknown, fallback: boolean): boolean {
     return value === undefined ? fallback : Boolean(value);
 }
 
+function isHttpUrl(value: string): boolean {
+    try {
+        const url = new URL(value);
+        return url.protocol === 'http:' || url.protocol === 'https:';
+    } catch {
+        return false;
+    }
+}
+
+/** POSTed the final state of the payout (README, Payout journal) */
+const callbackUrl = optional(z.string().trim().max(2000).refine(isHttpUrl, 'must be an http(s) URL'));
 
 function isSolanaAddress(value: string): boolean {
     try {
@@ -165,7 +176,8 @@ export const evmPayoutSchema = z.object({
     currency: label,
     private_key: hexPrivateKey,
     wait_for_receipt: truthy,
-    request_id: requestId
+    request_id: requestId,
+    callback_url: callbackUrl
 });
 
 export const evmMultiSendSchema = z.object({
@@ -175,7 +187,8 @@ export const evmMultiSendSchema = z.object({
     currency: label,
     multi_send_contract: evmAddress,
     wait_for_receipt: truthy,
-    request_id: requestId
+    request_id: requestId,
+    callback_url: callbackUrl
 });
 
 export const evmBatchSendSchema = z.object({
@@ -185,7 +198,8 @@ export const evmBatchSendSchema = z.object({
     batch_send_contract: evmAddress,
     native_transfers: optional(z.array(z.object({ to: evmAddress, amount: evmAmount }))),
     token_transfers: optional(z.array(z.object({ token_address: evmAddress, to: evmAddress, amount: evmAmount }))),
-    request_id: requestId
+    request_id: requestId,
+    callback_url: callbackUrl
 });
 
 /** `destination` is checked in the route first, keeping its original error message */
@@ -196,7 +210,8 @@ export const bridgeSchema = z.object({
     payee_address: optional(evmAddress),
     currency: label,
     wait_for_receipt: truthy,
-    request_id: requestId
+    request_id: requestId,
+    callback_url: callbackUrl
 });
 
 /* ----------------------------------------------------------------- Litecoin */
@@ -208,7 +223,8 @@ export const ltcPayoutSchema = z.object({
     amount: ltcAmount,
     payway: optional(text),
     currency: label,
-    request_id: requestId
+    request_id: requestId,
+    callback_url: callbackUrl
 });
 
 export const ltcMultiSendSchema = z.object({
@@ -224,7 +240,8 @@ export const ltcMultiSendSchema = z.object({
     comment: optional(z.string()),
     minconf: optional(z.number().int().min(0)),
     account: optional(z.string().trim()),
-    request_id: requestId
+    request_id: requestId,
+    callback_url: callbackUrl
 });
 
 /* ----------------------------------------------------------------- Solana */
@@ -237,7 +254,8 @@ export const solanaPayoutSchema = z.object({
     payee_address: solanaAddress,
     token_mint: optional(solanaAddress),
     is_token_2022: truthy,
-    request_id: requestId
+    request_id: requestId,
+    callback_url: callbackUrl
 });
 
 export const solanaIntermediateAtaSchema = solanaPayoutSchema.extend({
@@ -249,7 +267,8 @@ export const solanaMultiSendSchema = z.object({
     currency: label,
     token_mint: optional(solanaAddress),
     recipients: z.array(z.object({ address: solanaAddress, amount: solanaAmount })),
-    request_id: requestId
+    request_id: requestId,
+    callback_url: callbackUrl
 });
 
 export const solanaCreateTokenAccountSchema = z.object({
@@ -269,7 +288,10 @@ export const tronPayoutSchema = z.object({
     payee_address: tronAddress,
     amount: tronAmount,
     contract: optional(tronAddress),
-    isLegacy: z.boolean()
+    isLegacy: z.boolean(),
+    wait_for_receipt: truthy,
+    request_id: requestId,
+    callback_url: callbackUrl
 });
 
 export const tronMultiSendSchema = z.object({
@@ -279,7 +301,19 @@ export const tronMultiSendSchema = z.object({
     multi_send_contract: tronAddress,
     recipients: z.array(z.object({ address: tronAddress, amount: tronAmount })),
     token_contract: optional(tronAddress),
-    request_id: requestId
+    request_id: requestId,
+    callback_url: callbackUrl
+});
+
+/* ----------------------------------------------------------------- Payout journal */
+
+export const payoutListQuerySchema = z.object({
+    status: optional(z.enum(['pending', 'submitted', 'succeeded', 'failed', 'unknown'])),
+    chain: optional(z.string().trim()),
+    endpoint: optional(z.string().trim()),
+    request_id: optional(z.string().trim()),
+    before: optional(z.string().trim()),
+    limit: optional(z.coerce.number().int().min(1).max(500))
 });
 
 /**

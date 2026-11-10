@@ -4,8 +4,9 @@ import { createPublicClient, http, encodeFunctionData, parseEther, keccak256, ty
 
 /* Internal dependencies */
 import { logger } from '../utils/logger';
+import { reportPayoutOutcome } from '../payouts/run';
 import { nonceAllocator, type NonceLease } from '../utils/nonce-allocator';
-import { EvmNonceTakenError, isEvmNetworkError, isEvmProviderError } from '../utils/evm';
+import { assertEvmReceiptSuccess, EvmNonceTakenError, isEvmNetworkError, isEvmProviderError } from '../utils/evm';
 
 /* Constants */
 import { Const } from '../constants/const';
@@ -211,6 +212,38 @@ export class EthBridgeService extends BaseEvmService {
     }
 
     /**
+     * wait_for_receipt: false answers right after the broadcast. This follows the L1 deposit to its receipt, so a
+     * revert is logged and the payout journal learns the outcome, as the payout endpoints already do.
+     */
+    private waitForDepositInBackground(
+        hash: Hex,
+        rawTx: Hex,
+        via: string,
+        ownHashes: ReadonlySet<Hex>,
+        label: string,
+        reqInfo: string,
+        sender: Address,
+        chainId: number
+    ): void {
+        const client = createPublicClient({
+            chain: this.chain,
+            transport: http(via, { timeout: 10000 })
+        }) as PublicClient;
+        void (async () => {
+            try {
+                const receipt = await this.waitForOwnReceipt(client, hash, rawTx, ownHashes);
+                assertEvmReceiptSuccess(receipt, rawTx);
+                logger.info(label, `✅${reqInfo}[L1_DEPOSIT_CONFIRMED][L1_TX:${receipt.transactionHash}]`);
+                reportPayoutOutcome({ txId: receipt.transactionHash });
+            } catch (error: any) {
+                logger.error(label, `❌${reqInfo}[L1_DEPOSIT_FAILED][MSG:${error?.message || String(error)}]`);
+                reportPayoutOutcome({ error, txId: hash });
+                await nonceAllocator.markResync(sender, chainId);
+            }
+        })();
+    }
+
+    /**
      * Deposits native ETH from Sepolia to the chosen L2.
      * @returns the L1 deposit transaction hash (L2 crediting is asynchronous).
      */
@@ -238,6 +271,9 @@ export class EthBridgeService extends BaseEvmService {
                     const { txHash, via } = await this.fanoutSend(rawTx, waitForReceipt, requestId, ownHashes);
                     success = true;
                     logger.info(label, `✅${reqInfo}[L1_DEPOSIT_SENT][${via}][L1_TX:${txHash}]`);
+                    if (!waitForReceipt) {
+                        this.waitForDepositInBackground(txHash, rawTx, via, ownHashes, label, reqInfo, sender, chainId);
+                    }
                     return txHash;
                 } catch (err: any) {
                     // Another tx used the nonce: re-sign on a fresh one and send again

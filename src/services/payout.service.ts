@@ -12,6 +12,7 @@ import { assertEvmReceiptSuccess, EvmNonceTakenError, getChainForPayway, isEvmNe
 import { Const } from '../constants/const';
 
 import { BaseEvmService } from './base.evm.service';
+import { reportPayoutOutcome } from '../payouts/run';
 
 /**
  * Service class for handling EVM transactions with dynamic gas calculation
@@ -301,8 +302,10 @@ export class PayoutService extends BaseEvmService {
                     duration,
                     requestId
                 );
+                reportPayoutOutcome({ txId: receipt.transactionHash });
             } catch (error) {
                 const duration = Date.now() - start;
+                reportPayoutOutcome({ error, txId: hash });
                 await this.logTransactionError(error, url, currency, duration, requestId);
                 const reqInfo = requestId ? `[${requestId}]` : '';
                 logger.warn(this.payway.toUpperCase(), `⚠️${reqInfo}[RECEIPT_WAIT_FAILED][ACTION:nonce_resync]`);

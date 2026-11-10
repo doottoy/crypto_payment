@@ -1,0 +1,2 @@
+# The payout journal lives in a Docker volume, never in the image
+data

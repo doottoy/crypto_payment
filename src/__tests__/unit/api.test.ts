@@ -217,4 +217,79 @@ describe('HTTP API', () => {
             expect(nodeCalls).to.have.length(0);
         });
     });
+
+    describe('payout journal', () => {
+        const payout = { payee_address: 'tltc1qjournal', amount: '0.25', payway: 'ltc', currency: 'LTC' };
+
+        async function get(path: string): Promise<{ status: number; body: any }> {
+            const response = await fetch(`${baseUrl}${path}`, { signal: AbortSignal.timeout(5000) });
+            return { status: response.status, body: await response.json() };
+        }
+
+        it('answers the payout ids in headers and keeps the body as it was', async () => {
+            const response = await fetch(`${baseUrl}/payout/ltc`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ data: payout })
+            });
+
+            expect(await response.json()).to.deep.equal({ tx_id: 'ltc-txid' });
+            expect(response.headers.get('x-payout-id')).to.have.length(36);
+            expect(response.headers.get('x-request-id')).to.have.length(36);
+        });
+
+        it('looks a payout up by request_id and replays a retry without calling the node again', async () => {
+            const requestId = `ltc-${Date.now()}`;
+
+            const first = await post('/payout/ltc', { data: { ...payout, request_id: requestId } });
+            const retry = await fetch(`${baseUrl}/payout/ltc`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ data: { ...payout, request_id: requestId } })
+            });
+            const lookup = await get(`/payouts/${requestId}`);
+
+            expect(first.body).to.deep.equal({ tx_id: 'ltc-txid' });
+            expect(await retry.json()).to.deep.equal({ tx_id: 'ltc-txid' });
+            expect(nodeCalls).to.have.length(1);
+            expect(lookup.status).to.equal(200);
+            expect(lookup.body).to.deep.include({ request_id: requestId, endpoint: 'payout/ltc', chain: 'ltc', status: 'succeeded', tx_id: 'ltc-txid' });
+            expect(lookup.body.request).to.deep.include({ payee_address: payout.payee_address, amount: '0.25' });
+        });
+
+        it('journals failures with the error code', async () => {
+            const requestId = `ltc-fail-${Date.now()}`;
+            nodeReply = { status: 500, body: { result: null, error: { code: -6, message: 'Insufficient funds' }, id: '1' } };
+
+            await post('/payout/ltc', { data: { ...payout, request_id: requestId } });
+            const lookup = await get(`/payouts/${requestId}`);
+
+            expect(lookup.body).to.deep.include({ status: 'failed' });
+            expect(lookup.body.error.code).to.equal('insufficient_funds');
+        });
+
+        it('lists payouts filtered by chain and status', async () => {
+            await post('/payout/ltc', { data: payout });
+
+            const list = await get('/payouts?chain=ltc&status=succeeded&limit=5');
+
+            expect(list.status).to.equal(200);
+            expect(list.body.payouts.length).to.be.greaterThan(0);
+            expect(list.body.payouts.every((p: any) => p.chain === 'ltc' && p.status === 'succeeded')).to.equal(true);
+        });
+
+        it('answers an unknown payout with a JSON 404', async () => {
+            const lookup = await get('/payouts/does-not-exist');
+
+            expect(lookup.status).to.equal(404);
+            expect(lookup.body.code).to.equal('payout_not_found');
+        });
+
+        it('rejects a callback_url that is not http(s)', async () => {
+            const res = await post('/payout/ltc', { data: { ...payout, callback_url: 'ftp://example.com/hook' } });
+
+            expect(res.status).to.equal(400);
+            expect(res.body.details[0].path).to.equal('data.callback_url');
+        });
+    });
 });

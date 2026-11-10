@@ -5,6 +5,9 @@ services:
     restart: always
     env_file:
       - .env
+    volumes:
+      # payout journal (data/payouts.jsonl): request_id replays and payout history survive redeploys
+      - payout-data:/usr/src/app/data
     expose:
       - "3000"
     healthcheck:
@@ -20,6 +23,9 @@ services:
       options:
         max-size: "20m"
         max-file: "5"
+
+volumes:
+  payout-data:
 
 networks:
   web:
