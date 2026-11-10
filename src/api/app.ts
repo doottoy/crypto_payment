@@ -18,8 +18,10 @@ import { SolanaMultiPayoutService } from '../services/solana.multi-payout.servic
 /* Internal dependencies */
 import { logger } from '../utils/logger';
 import { Const } from '../constants/const';
-import { requestIdRegistry } from '../utils/idempotency';
 import { ApiError, toErrorResponse } from './errors';
+import { getPayoutStore } from '../payouts/store';
+import { toApiPayout } from '../payouts/serialize';
+import { runPayout, type PayoutResult } from '../payouts/run';
 import {
     flagOr,
     parseData,
@@ -32,6 +34,7 @@ import {
     solanaPayoutSchema,
     evmBatchSendSchema,
     tronMultiSendSchema,
+    payoutListQuerySchema,
     solanaMultiSendSchema,
     solanaIntermediateAtaSchema,
     solanaCreateTokenAccountSchema
@@ -62,6 +65,16 @@ export function asyncRoute(handler: (req: Request, res: Response) => Promise<voi
     };
 }
 
+/**
+ * The body stays `{ tx_id }` as before; the journal ids travel in headers so existing clients see no change.
+ */
+function sendPayout(res: Response, result: PayoutResult, status = 200): void {
+    res.setHeader('X-Payout-Id', result.payoutId);
+    res.setHeader('X-Request-Id', result.requestId);
+    if (result.replayed) res.setHeader('X-Idempotent-Replay', 'true');
+    res.status(status).json({ tx_id: result.txId });
+}
+
 export function createApp(): Express {
     const app = express();
 
@@ -73,11 +86,48 @@ export function createApp(): Express {
         res.json({ status: 'ok', version, uptime_s: Math.round((Date.now() - startedAt) / 1000) });
     });
 
+    /* Payout journal: one payout by its id or request_id */
+    app.get('/payouts/:id', (req: Request, res: Response) => {
+        const record = getPayoutStore().findLatest(req.params.id);
+        if (!record) {
+            throw new ApiError(404, 'payout_not_found', `No payout with id or request_id "${req.params.id}"`);
+        }
+        res.json(toApiPayout(record));
+    });
+
+    /* Payout journal: newest first, `before` = the `created_at` of the last item of the previous page */
+    app.get('/payouts', (req: Request, res: Response) => {
+        const query = payoutListQuerySchema.parse(req.query);
+        const records = getPayoutStore().list({
+            status: query.status,
+            chain: query.chain,
+            scope: query.endpoint,
+            requestId: query.request_id,
+            before: query.before,
+            limit: query.limit
+        });
+        const limit = query.limit ?? 50;
+        res.json({
+            payouts: records.map(toApiPayout),
+            next_before: records.length === limit ? records[records.length - 1].createdAt : null
+        });
+    });
+
     /* Endpoint for processing single EVM payout transactions */
     app.post('/payout/evm', asyncRoute(async (req, res) => {
         const data = parseData(evmPayoutSchema, req.body);
+        const waitForReceipt = flagOr(data.wait_for_receipt, true);
 
-        const txHash = await requestIdRegistry.run('payout/evm', data.request_id, req.body.data, async () => {
+        const result = await runPayout({
+            scope: 'payout/evm',
+            chain: 'evm',
+            payway: data.payway,
+            currency: data.currency,
+            requestId: data.request_id,
+            payload: req.body.data,
+            callbackUrl: data.callback_url,
+            settlesInBackground: !waitForReceipt
+        }, async () => {
             const evmService = new PayoutService(data.payway, data.private_key);
             await evmService.init();
             return evmService.sendTransaction(
@@ -85,36 +135,54 @@ export function createApp(): Express {
                 data.amount,
                 data.contract as string,
                 data.currency ?? '',
-                flagOr(data.wait_for_receipt, true),
+                waitForReceipt,
                 data.request_id
             );
         });
-        res.json({ tx_id: txHash });
+        sendPayout(res, result);
     }));
 
     /* Endpoint for processing multi-send EVM transactions */
     app.post('/payout/evm/multi_send', asyncRoute(async (req, res) => {
         const data = parseData(evmMultiSendSchema, req.body);
+        const waitForReceipt = flagOr(data.wait_for_receipt, true);
 
-        const txHash = await requestIdRegistry.run('payout/evm/multi_send', data.request_id, req.body.data, async () => {
+        const result = await runPayout({
+            scope: 'payout/evm/multi_send',
+            chain: 'evm',
+            payway: data.payway,
+            currency: data.currency,
+            requestId: data.request_id,
+            payload: req.body.data,
+            callbackUrl: data.callback_url,
+            settlesInBackground: !waitForReceipt
+        }, async () => {
             const multiSendService = new MultiPayoutService(data.payway, data.private_key);
             await multiSendService.init(data.multi_send_contract);
             return multiSendService.multiSend(
                 data.recipients,
                 data.multi_send_contract,
                 data.currency ?? '',
-                flagOr(data.wait_for_receipt, true),
+                waitForReceipt,
                 data.request_id
             );
         });
-        res.json({ tx_id: txHash });
+        sendPayout(res, result);
     }));
 
     /* Endpoint for processing batch send EVM transactions (native + multiple ERC20) */
     app.post('/payout/evm/batch_send', asyncRoute(async (req, res) => {
         const data = parseData(evmBatchSendSchema, req.body);
 
-        const txHash = await requestIdRegistry.run('payout/evm/batch_send', data.request_id, req.body.data, async () => {
+        const result = await runPayout({
+            scope: 'payout/evm/batch_send',
+            chain: 'evm',
+            payway: data.payway,
+            currency: data.currency,
+            requestId: data.request_id,
+            payload: req.body.data,
+            callbackUrl: data.callback_url
+        }, async () => {
             const evmBatchService = new EvmBatchPayoutService(data.payway, data.private_key);
             await evmBatchService.init(data.batch_send_contract);
             return evmBatchService.batchSend(
@@ -125,7 +193,7 @@ export function createApp(): Express {
                 data.request_id
             );
         });
-        res.json({ tx_id: txHash });
+        sendPayout(res, result);
     }));
 
     /* Endpoint for native ETH L1->L2 bridge deposits (Sepolia -> Base/Arbitrum Sepolia) */
@@ -141,25 +209,34 @@ export function createApp(): Express {
             );
         }
         const data = parseData(bridgeSchema, req.body);
+        const waitForReceipt = flagOr(data.wait_for_receipt, true);
 
-        const txHash = await requestIdRegistry.run('bridge/eth', data.request_id, req.body.data, async () => {
+        const result = await runPayout({
+            scope: 'bridge/eth',
+            chain: 'evm',
+            payway: 'eth',
+            currency: data.currency ?? 'ETH',
+            requestId: data.request_id,
+            payload: req.body.data,
+            callbackUrl: data.callback_url,
+            settlesInBackground: !waitForReceipt
+        }, async () => {
             const bridgeService = new EthBridgeService(data.private_key);
             await bridgeService.init();
             return bridgeService.deposit(
                 data.destination as BridgeDestination,
                 data.amount,
                 data.payee_address,
-                flagOr(data.wait_for_receipt, true),
+                waitForReceipt,
                 data.request_id
             );
         });
-        res.json({ tx_id: txHash });
+        sendPayout(res, result);
     }));
 
     /* Endpoint for processing single LTC payout transactions */
     app.post('/payout/ltc', asyncRoute(async (req, res) => {
         const data = parseData(ltcPayoutSchema, req.body);
-
         const request: LtcBaseRequestBody = {
             method: 'sendtoaddress',
             payee_address: data.payee_address,
@@ -168,14 +245,22 @@ export function createApp(): Express {
             currency: data.currency ?? 'LTC',
             request_id: data.request_id
         };
-        const txHash = await new LtcPayoutService().ltcSendTransaction(request);
-        res.json({ tx_id: txHash });
+
+        const result = await runPayout({
+            scope: 'payout/ltc',
+            chain: 'ltc',
+            payway: request.payway,
+            currency: request.currency,
+            requestId: data.request_id,
+            payload: req.body.data,
+            callbackUrl: data.callback_url
+        }, () => new LtcPayoutService().ltcSendTransaction(request));
+        sendPayout(res, result);
     }));
 
     /* Endpoint for processing multi-send LTC transactions */
     app.post('/payout/ltc/multi_send', asyncRoute(async (req, res) => {
         const data = parseData(ltcMultiSendSchema, req.body);
-
         const request: LtcSendManyRequestBody = {
             method: 'sendmany',
             payway: data.payway ?? 'ltc',
@@ -186,53 +271,94 @@ export function createApp(): Express {
             account: data.account,
             request_id: data.request_id
         };
-        const txHash = await new LtcMultiPayoutService().ltcMultiSend(request);
-        res.json({ tx_id: txHash });
+
+        const result = await runPayout({
+            scope: 'payout/ltc/multi_send',
+            chain: 'ltc',
+            payway: request.payway,
+            currency: request.currency,
+            requestId: data.request_id,
+            payload: req.body.data,
+            callbackUrl: data.callback_url
+        }, () => new LtcMultiPayoutService().ltcMultiSend(request));
+        sendPayout(res, result);
     }));
 
     /* Endpoint for processing Solana transactions */
     app.post('/payout/solana', asyncRoute(async (req, res) => {
         const data = parseData(solanaPayoutSchema, req.body);
+        const payway = data.payway ?? 'sol';
 
-        const solanaService = new SolanaPayoutService(data.payway ?? 'sol', data.private_key);
-        await solanaService.init();
-        const txHash = await solanaService.sendTransaction(
-            data.payee_address,
-            data.amount,
-            data.currency ?? '',
-            data.token_mint as string,
-            flagOr(data.is_token_2022, false)
-        );
-        res.json({ tx_id: txHash });
+        const result = await runPayout({
+            scope: 'payout/solana',
+            chain: 'solana',
+            payway,
+            currency: data.currency,
+            requestId: data.request_id,
+            payload: req.body.data,
+            callbackUrl: data.callback_url
+        }, async () => {
+            const solanaService = new SolanaPayoutService(payway, data.private_key);
+            await solanaService.init();
+            return solanaService.sendTransaction(
+                data.payee_address,
+                data.amount,
+                data.currency ?? '',
+                data.token_mint as string,
+                flagOr(data.is_token_2022, false)
+            );
+        });
+        sendPayout(res, result);
     }));
 
     app.post('/payout/solana/multi_send', asyncRoute(async (req, res) => {
         const data = parseData(solanaMultiSendSchema, req.body);
 
-        const multiService = new SolanaMultiPayoutService(data.private_key);
-        await multiService.init();
-        const txHash = await multiService.sendTransaction(data.recipients, data.currency ?? '', data.token_mint as string);
-        res.json({ tx_id: txHash });
+        const result = await runPayout({
+            scope: 'payout/solana/multi_send',
+            chain: 'solana',
+            payway: 'sol',
+            currency: data.currency,
+            requestId: data.request_id,
+            payload: req.body.data,
+            callbackUrl: data.callback_url
+        }, async () => {
+            const multiService = new SolanaMultiPayoutService(data.private_key);
+            await multiService.init();
+            return multiService.sendTransaction(data.recipients, data.currency ?? '', data.token_mint as string);
+        });
+        sendPayout(res, result);
     }));
 
     /* Endpoint for processing Solana SPL transfers via an ephemeral intermediate ATA */
     app.post('/payout/solana/intermediate_ata', asyncRoute(async (req, res) => {
         const data = parseData(solanaIntermediateAtaSchema, req.body);
+        const payway = data.payway ?? 'sol';
 
-        const solanaService = new SolanaPayoutService(data.payway ?? 'sol', data.private_key);
-        await solanaService.init();
-        const txHash = await solanaService.sendWithIntermediateAta(
-            data.payee_address,
-            data.amount,
-            data.token_mint,
-            data.currency ?? '',
-            flagOr(data.is_token_2022, false),
-            data.request_id
-        );
-        res.json({ tx_id: txHash });
+        const result = await runPayout({
+            scope: 'payout/solana/intermediate_ata',
+            chain: 'solana',
+            payway,
+            currency: data.currency,
+            requestId: data.request_id,
+            payload: req.body.data,
+            callbackUrl: data.callback_url
+        }, async () => {
+            const solanaService = new SolanaPayoutService(payway, data.private_key);
+            await solanaService.init();
+            return solanaService.sendWithIntermediateAta(
+                data.payee_address,
+                data.amount,
+                data.token_mint,
+                data.currency ?? '',
+                flagOr(data.is_token_2022, false),
+                data.request_id
+            );
+        });
+        sendPayout(res, result);
     }));
 
-    /* Endpoint for create token account */
+    /* Endpoint for create token account (not a payout, not journaled) */
     app.post('/solana/create_token_account', asyncRoute(async (req, res) => {
         const data = parseData(solanaCreateTokenAccountSchema, req.body);
 
@@ -253,20 +379,40 @@ export function createApp(): Express {
         const payload = tronPayoutSchema.parse(normalized);
         const currency = payload.currency ?? (payload.contract ? '' : 'TRX');
 
-        const tronService = new TronPayoutService(payload.payway, payload.private_key);
-        await tronService.init();
-        const amount = await TronPayoutService.resolveTronAmount({ ...payload, currency }, tronService);
-        const txHash = await tronService.sendTransaction(payload.payee_address, amount, payload.contract, currency);
-        res.status(payload.isLegacy ? 201 : 200).json({ tx_id: txHash });
+        const result = await runPayout({
+            scope: 'payout/tron',
+            chain: 'tron',
+            payway: payload.payway,
+            currency,
+            requestId: payload.request_id,
+            payload: normalized,
+            callbackUrl: payload.callback_url
+        }, async () => {
+            const tronService = new TronPayoutService(payload.payway, payload.private_key);
+            await tronService.init();
+            const amount = await TronPayoutService.resolveTronAmount({ ...payload, currency }, tronService);
+            return tronService.sendTransaction(payload.payee_address, amount, payload.contract, currency, payload.request_id);
+        });
+        sendPayout(res, result, payload.isLegacy ? 201 : 200);
     }));
 
     app.post('/payout/tron/multi_send', asyncRoute(async (req, res) => {
         const data = parseData(tronMultiSendSchema, req.body);
 
-        const tronMultiService = new TronMultiPayoutService(data.payway, data.private_key);
-        await tronMultiService.init(data.multi_send_contract);
-        const txHash = await tronMultiService.multiSend(data.token_contract, data.recipients, data.currency ?? '');
-        res.json({ tx_id: txHash });
+        const result = await runPayout({
+            scope: 'payout/tron/multi_send',
+            chain: 'tron',
+            payway: data.payway,
+            currency: data.currency,
+            requestId: data.request_id,
+            payload: req.body.data,
+            callbackUrl: data.callback_url
+        }, async () => {
+            const tronMultiService = new TronMultiPayoutService(data.payway, data.private_key);
+            await tronMultiService.init(data.multi_send_contract);
+            return tronMultiService.multiSend(data.token_contract, data.recipients, data.currency ?? '', data.request_id);
+        });
+        sendPayout(res, result);
     }));
 
     /* Unknown routes answer JSON too */

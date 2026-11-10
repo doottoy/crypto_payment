@@ -107,4 +107,7 @@ export type TronCurrentPayoutData = {
  */
 export type TronNormalizedPayload = TronCurrentPayoutData & {
     isLegacy: boolean;
+    request_id?: unknown;
+    callback_url?: unknown;
+    wait_for_receipt?: unknown;
 };

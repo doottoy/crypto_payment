@@ -45,6 +45,13 @@ RPC_PASS=litecoin_core_password
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 TELEGRAM_CHAT_ID=your_chat_id
 
+# Payout journal (optional, defaults shown)
+DATA_DIR=./data
+IDEMPOTENCY_TTL_HOURS=6
+PAYOUT_RETENTION_DAYS=30
+CALLBACK_SECRET=
+CALLBACK_ALLOW_PRIVATE=false
+
 # Test automation (optional)
 AUTOMATION_EVM_PRIVATE_KEY=...
 AUTOMATION_SERVICE_PRIVATE_KEY=...
@@ -90,7 +97,9 @@ HTTP statuses are the ones the service always answered with: 400 when the reques
 | `invalid_request` | 400 | A field is missing or malformed; `details` lists every field |
 | `invalid_json` | 400 | The body is not valid JSON |
 | `not_found` | 404 | No such route |
+| `payout_not_found` | 404 | `GET /payouts/{id}` knows no such payout |
 | `idempotency_conflict` | 409 | The `request_id` was already used with a different payload |
+| `outcome_unknown` | 409 | An earlier attempt under this `request_id` was cut by a restart; check `details.tx_id` before paying again |
 | `insufficient_funds` | 500 | The sender cannot cover the amount and the fee |
 | `tx_reverted` | 500 | The transaction was mined but reverted, nothing was paid; `details.tx_id` is its hash |
 | `nonce_taken` | 500 | Another transaction used the nonce, nothing was paid |
@@ -118,7 +127,7 @@ HTTP statuses are the ones the service always answered with: 400 when the reques
 ```
 Omit `contract` to send native ETH instead of ERC20.
 Set `wait_for_receipt` to `false` to return `tx_id` immediately after submission; the service will wait for the receipt in the background.
-Pass a stable `request_id` on client retries so the same payout request can be safely replayed without creating a new transaction.
+Pass a stable `request_id` on client retries so the same payout request can be safely replayed without creating a new transaction. This works on every payout endpoint and survives restarts, see [Payout journal](#payout-journal).
 
 ### EVM (multi-send)
 `POST /payout/evm/multi_send`
@@ -287,6 +296,53 @@ Deposits native ETH from Sepolia (L1) to an L2 - Base Sepolia (OP Stack) or Arbi
 - Omit `payee_address` to bridge to the sender's own address on the L2; provide it to credit a different recipient. (For Arbitrum with a custom recipient the service uses a retryable ticket, reading the submission fee and L2 gas price on-chain.)
 - The returned `tx_id` is the **L1 deposit hash**; funds arrive on the L2 asynchronously (≈1-3 min for Base, ≈10-15 min for Arbitrum).
 - `request_id` gives the same idempotency behaviour as the EVM payout endpoints.
+
+## Payout journal
+Every payout is recorded in `data/payouts.jsonl` (`DATA_DIR`). In Docker the file lives in the `payout-data` volume, so it survives redeploys.
+
+**`request_id` works on every payout endpoint** (EVM, bridge, Litecoin, Solana, Tron). Within `IDEMPOTENCY_TTL_HOURS` (default 6) a repeated `request_id` on the same endpoint:
+- with the same payload returns the `tx_id` of the earlier payout instead of paying again, also after a restart;
+- while the first request is still running, waits for it and returns the same `tx_id`;
+- after a failed attempt, tries again;
+- with a different payload answers 409 `idempotency_conflict`;
+- after an attempt the service could not finish (it restarted mid-payout) answers 409 `outcome_unknown`, with the `tx_id` if one was broadcast. Check it before paying again under a new `request_id`.
+
+**Response headers.** The body stays `{ "tx_id": "..." }`. Next to it come `X-Payout-Id`, `X-Request-Id` (generated when the request had none) and `X-Idempotent-Replay: true` on a replay.
+
+**`GET /payouts/{id or request_id}`** returns one payout. `request` is the request payload without private keys:
+```json
+{
+  "id": "3f0c...",
+  "request_id": "uuid-or-stable-client-id",
+  "endpoint": "payout/evm",
+  "chain": "evm",
+  "payway": "eth",
+  "currency": "ETH",
+  "status": "succeeded",
+  "tx_id": "0x...",
+  "error": null,
+  "callback": null,
+  "attempts": 1,
+  "request": { "payway": "eth", "payee_address": "0x...", "amount": "0.1" },
+  "created_at": "2026-11-10T12:00:00.000Z",
+  "updated_at": "2026-11-10T12:00:14.000Z",
+  "completed_at": "2026-11-10T12:00:14.000Z"
+}
+```
+
+**`GET /payouts?status=&chain=&endpoint=&request_id=&limit=50&before=`** lists payouts, newest first. Pass `next_before` from the answer as `before` to get the next page.
+
+| `status` | Meaning |
+|---|---|
+| `pending` | Being processed |
+| `submitted` | Broadcast with `wait_for_receipt: false`; the outcome follows from the background receipt wait |
+| `succeeded` | Final: the payout happened |
+| `failed` | Final: the payout did not happen; `error` says why |
+| `unknown` | The service restarted while the payout was pending; it may or may not have been broadcast |
+
+**`callback_url`** (optional on every payout endpoint). When the payout reaches `succeeded` or `failed`, the service POSTs `{ "event": "payout.succeeded", "payout": { ... } }` with the payout as `GET /payouts/{id}` shows it. Up to 3 attempts. With `CALLBACK_SECRET` set, the request carries `X-Signature: sha256=<HMAC-SHA256 of the body>`. Addresses in private networks are refused unless `CALLBACK_ALLOW_PRIVATE=true`.
+
+Final payouts older than `PAYOUT_RETENTION_DAYS` (default 30) are dropped from the journal.
 
 ## Observability
 - Logs to stdout with timestamps and network tags.

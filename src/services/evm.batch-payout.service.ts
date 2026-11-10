@@ -3,6 +3,7 @@ import { Address, Hex, createPublicClient, encodeFunctionData, http, keccak256, 
 
 /* Internal dependencies */
 import { logger } from '../utils/logger';
+import { reportPayoutOutcome } from '../payouts/run';
 import { EVMTransactionLogger } from '../utils/modules';
 import { nonceAllocator } from '../utils/nonce-allocator';
 import { NativeTransfer, TokenTransfer } from '../interfaces/payout.interface';
@@ -112,7 +113,9 @@ export class EvmBatchPayoutService extends BaseEvmService {
                     currency,
                     requestId
                 );
+                reportPayoutOutcome({ txId: receipt.transactionHash });
             } catch (error) {
+                reportPayoutOutcome({ error, txId: hash });
                 await this.logTransactionError(error, currency, requestId);
                 const reqInfo = requestId ? `[${requestId}]` : '';
                 logger.warn(this.payway.toUpperCase(), `⚠️${reqInfo}[RECEIPT_WAIT_FAILED][ACTION:nonce_resync]`);
