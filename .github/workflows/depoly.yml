@@ -24,6 +24,10 @@ jobs:
       - name: Build project
         run: npm run app:build
 
+      # Offline tests only: local mock servers stand in for nodes, nothing reaches a real network
+      - name: Run unit tests
+        run: npm run test:unit
+
   deploy:
     runs-on: ubuntu-latest
     needs: build-and-test
@@ -46,6 +50,13 @@ jobs:
             git pull origin main
             # builds while the old container keeps serving, then swaps it; a failed build leaves the old one running
             docker compose up --build -d
+            # the job fails (and the notify job alerts) when the new container is not healthy within a minute
+            for i in $(seq 1 30); do
+              status=$(docker inspect -f '{{.State.Health.Status}}' crypto_payment 2>/dev/null || echo unknown)
+              if [ "$status" = "healthy" ]; then echo "crypto_payment is healthy"; break; fi
+              if [ "$i" = "30" ]; then echo "crypto_payment is $status after 60s"; docker logs --tail 50 crypto_payment; exit 1; fi
+              sleep 2
+            done
           EOF
 
   notify:

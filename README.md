@@ -73,6 +73,31 @@ All endpoints respond with:
 { "tx_id": "transaction_hash" }
 ```
 
+### Errors
+Every failure is answered with JSON, never with an HTML page or a stack trace. `error` is a readable message, `code` is stable and meant for assertions, `details` is present when there is more to say:
+```json
+{
+  "error": "data.amount: must be a non-negative decimal number such as \"0.1\"",
+  "code": "invalid_request",
+  "details": [{ "path": "data.amount", "message": "must be a non-negative decimal number such as \"0.1\"" }]
+}
+```
+
+| `code` | HTTP | Meaning |
+|---|---|---|
+| `invalid_request` | 400 | A field is missing or malformed; `details` lists every field |
+| `invalid_json` | 400 | The body is not valid JSON |
+| `insufficient_funds` | 400 | The sender cannot cover the amount and the fee |
+| `invalid_address` | 400 | The Litecoin node rejected an address |
+| `wallet_not_found` | 400 | The Litecoin wallet named in `account` is not loaded |
+| `not_found` | 404 | No such route |
+| `idempotency_conflict` | 409 | The `request_id` was already used with a different payload |
+| `tx_reverted` | 500 | The transaction was mined but reverted, nothing was paid; `details.tx_id` is its hash |
+| `nonce_taken` | 500 | Another transaction used the nonce, nothing was paid |
+| `internal_error` | 500 | Anything else |
+| `rpc_unavailable` | 502 | Every RPC provider of the network failed |
+| `node_error` | 502 | The Litecoin node failed in a way the caller cannot fix |
+
 ### EVM (single)
 `POST /payout/evm`
 ```json
@@ -152,6 +177,7 @@ Allows sending both native currency and multiple ERC20 tokens in a single transa
   }
 }
 ```
+`method` may be omitted. The service always calls `sendtoaddress` on the node, any other value is rejected with `invalid_request`. Amounts have at most 8 decimal places.
 
 ### Litecoin (multi)
 `POST /payout/ltc/multi_send`
@@ -262,12 +288,13 @@ Deposits native ETH from Sepolia (L1) to an L2 - Base Sepolia (OP Stack) or Arbi
 
 ## Observability
 - Logs to stdout with timestamps and network tags.
-- Telegram alerts via `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`.
+- Telegram alerts via `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` (skipped when they are not set).
+- `GET /health` answers `{ "status": "ok", "version": "1.4.4", "uptime_s": 42 }`. Docker uses it as the container healthcheck, and the deploy job fails when the new container does not turn healthy within a minute.
 
 ## Development
 - Build: `npm run app:build`
 - Start: `npm run app:start` (uses `PORT` or 3000)
-- Tests: `npm run tests:start`
+- Unit tests: `npm run test:unit`. They run offline against local mock nodes, and CI runs them before every deploy.
 - Lint: `npm run lint` (auto-fix: `npm run lint-fix`)
 
 ## Deployment

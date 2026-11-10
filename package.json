@@ -9,7 +9,8 @@
     "app:build": "tsc",
     "app:start": "node dist/app.js",
     "tests:start": "",
-    "tests:get-data-from-sheet": "ts-node src/__tests__/utils/get-data-from-sheet.ts 0 cryptoPaymentTestData.json"
+    "tests:get-data-from-sheet": "ts-node src/__tests__/utils/get-data-from-sheet.ts 0 cryptoPaymentTestData.json",
+    "test:unit": "mocha --no-config --require ts-node/register --require src/__tests__/setup.ts --timeout 60000 --exit \"src/__tests__/unit/**/*.test.ts\" src/__tests__/utils/idempotency.test.ts src/__tests__/utils/evm.test.ts src/__tests__/services/evm.nonce.test.ts"
   },
   "dependencies": {
     "@solana/spl-token": "^0.4.9",
@@ -27,7 +28,8 @@
     "node-fetch": "^2.7.0",
     "tronweb": "^6.0.0",
     "uuid": "^10.0.0",
-    "viem": "^2.43.5"
+    "viem": "^2.43.5",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/chai": "^4.3.17",
