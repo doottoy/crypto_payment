@@ -378,6 +378,8 @@ export function createApp(): Express {
         }
         const payload = tronPayoutSchema.parse(normalized);
         const currency = payload.currency ?? (payload.contract ? '' : 'TRX');
+        // Waits for the transaction to execute in a block unless told not to, as the EVM payouts do
+        const waitForReceipt = flagOr(payload.wait_for_receipt, true);
 
         const result = await runPayout({
             scope: 'payout/tron',
@@ -386,18 +388,20 @@ export function createApp(): Express {
             currency,
             requestId: payload.request_id,
             payload: normalized,
-            callbackUrl: payload.callback_url
+            callbackUrl: payload.callback_url,
+            settlesInBackground: !waitForReceipt
         }, async () => {
             const tronService = new TronPayoutService(payload.payway, payload.private_key);
             await tronService.init();
             const amount = await TronPayoutService.resolveTronAmount({ ...payload, currency }, tronService);
-            return tronService.sendTransaction(payload.payee_address, amount, payload.contract, currency, payload.request_id);
+            return tronService.sendTransaction(payload.payee_address, amount, payload.contract, currency, payload.request_id, waitForReceipt);
         });
         sendPayout(res, result, payload.isLegacy ? 201 : 200);
     }));
 
     app.post('/payout/tron/multi_send', asyncRoute(async (req, res) => {
         const data = parseData(tronMultiSendSchema, req.body);
+        const waitForReceipt = flagOr(data.wait_for_receipt, true);
 
         const result = await runPayout({
             scope: 'payout/tron/multi_send',
@@ -406,11 +410,12 @@ export function createApp(): Express {
             currency: data.currency,
             requestId: data.request_id,
             payload: req.body.data,
-            callbackUrl: data.callback_url
+            callbackUrl: data.callback_url,
+            settlesInBackground: !waitForReceipt
         }, async () => {
             const tronMultiService = new TronMultiPayoutService(data.payway, data.private_key);
             await tronMultiService.init(data.multi_send_contract);
-            return tronMultiService.multiSend(data.token_contract, data.recipients, data.currency ?? '', data.request_id);
+            return tronMultiService.multiSend(data.token_contract, data.recipients, data.currency ?? '', data.request_id, waitForReceipt);
         });
         sendPayout(res, result);
     }));

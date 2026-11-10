@@ -22,6 +22,11 @@ export const Const = {
     // NOTE: 'BANDWITH_ERROR' is the actual (misspelled) enum value in java-tron
     TRON_BROADCAST_RETRYABLE_CODES: ['SERVER_BUSY', 'BANDWITH_ERROR', 'TAPOS_ERROR', 'TRANSACTION_EXPIRATION_ERROR'],
 
+    // Execution check after an accepted broadcast: blocks come every 3s and a transaction built by TronWeb expires
+    // after 60s, so by 90s it is either in a block or can never be
+    TRON_CONFIRM_TIMEOUT_MS: 90000,
+    TRON_CONFIRM_POLL_MS: 3000,
+
     EVM_FEE: {
         GWEI: 10n ** 9n,
         TIP_FLOORS: {

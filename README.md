@@ -103,6 +103,8 @@ HTTP statuses are the ones the service always answered with: 400 when the reques
 | `insufficient_funds` | 500 | The sender cannot cover the amount and the fee |
 | `tx_reverted` | 500 | The transaction was mined but reverted, nothing was paid; `details.tx_id` is its hash |
 | `nonce_taken` | 500 | Another transaction used the nonce, nothing was paid |
+| `tx_failed` | 500 | A Tron transaction is in a block but its execution failed (`details.result`: `REVERT`, `OUT_OF_ENERGY`, ...), nothing was paid |
+| `tx_not_confirmed` | 500 | A Tron transaction was not found in a block within 90 seconds; past its expiration it can no longer be included |
 | `rpc_unavailable` | 500 | Every RPC provider of the network failed |
 | `invalid_address` | 500 | The Litecoin node rejected an address |
 | `wallet_not_found` | 500 | The Litecoin wallet named in `account` is not loaded |
@@ -258,6 +260,8 @@ Set `token_mint` and `is_token_2022: true` for Token-2022; set `token_mint` for 
 ```
 For TRC20, set `payway` to `trc20`, provide `contract`, and set `currency` accordingly.
 
+The service answers once the transaction has executed in a block (usually 3 to 6 seconds after the broadcast). A TRC20 transfer that reverts or runs out of energy fails with `tx_failed` instead of being answered as sent. Set `wait_for_receipt` to `false` to get the `tx_id` right after the broadcast: the execution is then checked in the background and its outcome goes to the alerts and the [payout journal](#payout-journal). `request_id` and `callback_url` work as on the other endpoints, in both the `{ "data": ... }` shape and the legacy flat one.
+
 ### Tron (multi)
 `POST /payout/tron/multi_send`
 ```json
@@ -275,7 +279,7 @@ For TRC20, set `payway` to `trc20`, provide `contract`, and set `currency` accor
   }
 }
 ```
-`token_contract` is required for TRC20 multi-send; omit for TRX.
+`token_contract` is required for TRC20 multi-send; omit for TRX. Token amounts are scaled by the decimals of the token itself (they used to be scaled by 6 for every token, right only for 6-decimal tokens such as USDT). `wait_for_receipt` works as for the single Tron payout.
 
 ### Bridge (native ETH, L1 → L2)
 `POST /bridge/eth`
