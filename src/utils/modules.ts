@@ -11,6 +11,7 @@ import { RpcResponse } from '../interfaces/ltc.payout.interface';
 
 /* Internal dependencies */
 import { logger } from './logger';
+import { CoreRpcError } from '../api/errors';
 import { notifierMessage } from './message-formatter';
 
 /* Constants */
@@ -23,6 +24,11 @@ import { Const } from '../constants/const';
  * @returns A Promise that resolves when the message has been sent.
  */
 async function sendMessageToTelegram(message: string): Promise<void> {
+    // Without a bot configured (local runs, CI) there is nobody to notify
+    if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) {
+        return;
+    }
+
     try {
         // Construct the URL for the Telegram Bot API
         const url = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`;
@@ -104,8 +110,13 @@ export async function makeRpcRequest<T>(
         })
     });
 
-    const data: RpcResponse<T> = await response.json();
-    return data;
+    // Errors come back as HTTP 500 with a JSON body; an auth failure (401) has no JSON at all
+    const raw = await response.text();
+    try {
+        return JSON.parse(raw) as RpcResponse<T>;
+    } catch {
+        throw new CoreRpcError(method, undefined, `node answered HTTP ${response.status} without a JSON-RPC body`);
+    }
 }
 
 /**

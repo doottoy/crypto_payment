@@ -1,5 +1,6 @@
 /* Internal dependencies */
 import { logger } from '../utils/logger';
+import { CoreRpcError } from '../api/errors';
 import { modules, makeRpcRequest } from '../utils/modules';
 import { notifierMessage } from '../utils/message-formatter';
 
@@ -49,7 +50,7 @@ export class LtcMultiPayoutService {
             const keys = Object.keys(amounts);
             const subtractFrom: string[] = keys.length ? [keys[keys.length - 1]] : [];
 
-            const rpc = await makeRpcRequest<{ result: string }>(
+            const rpc = await makeRpcRequest<string>(
                 'sendmany',
                 [
                     "",
@@ -63,17 +64,9 @@ export class LtcMultiPayoutService {
 
             logger.info(network, `🔄${reqInfo}[MULTISEND][RECIPIENTS:${Object.keys(amounts).length}]`);
 
-            if ((rpc as any).error) {
-                logger.error(network, `❌${reqInfo}[MULTISEND_ERROR][MSG:${JSON.stringify((rpc as any).error)}]`);
-                await modules.sendMessageToTelegram(
-                    notifierMessage.formatErrorMultiSendLTC(
-                        request.payway,
-                        request.currency,
-                        (rpc as any).error,
-                        request.request_id
-                    )
-                );
-                throw new Error(JSON.stringify((rpc as any).error));
+            // The catch below logs and alerts once; the node reports failures in `error`, with `result` null
+            if (rpc.error || !rpc.result) {
+                throw new CoreRpcError('sendmany', rpc.error?.code, rpc.error?.message || 'the node returned no transaction id');
             }
 
             const successMsg = notifierMessage.formatSuccessMultiSendLTC(
@@ -89,13 +82,13 @@ export class LtcMultiPayoutService {
 
             return rpc.result;
         } catch (error) {
+            const errMsg = error instanceof Error ? error.message : String(error);
             const errorMsg = notifierMessage.formatErrorMultiSendLTC(
                 request.payway,
                 request.currency,
-                error,
+                { error: errMsg },
                 request.request_id
             );
-            const errMsg = error instanceof Error ? error.message : String(error);
             logger.error(network, `❌${reqInfo}[ERROR][MSG:${errMsg}]`);
             await modules.sendMessageToTelegram(
                 errorMsg
