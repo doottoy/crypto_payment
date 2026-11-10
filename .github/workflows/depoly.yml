@@ -16,7 +16,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Install dependencies
         run: npm ci
@@ -27,6 +27,19 @@ jobs:
       # Offline tests only: local mock servers stand in for nodes, nothing reaches a real network
       - name: Run unit tests
         run: npm run test:unit
+
+      # The server builds this same image on deploy: a broken Dockerfile or base image fails here, not in production.
+      # NODE_OPTIONS matches the server .env; no secrets are needed for the service to start and answer /health.
+      - name: Build the Docker image and check that it starts
+        run: |
+          docker build -t crypto-payment-ci .
+          docker run -d --name crypto-payment-ci -e NODE_OPTIONS=--openssl-legacy-provider -p 3000:3000 crypto-payment-ci
+          for i in $(seq 1 30); do
+            if curl -fs http://127.0.0.1:3000/health; then echo; docker rm -f crypto-payment-ci > /dev/null; exit 0; fi
+            sleep 2
+          done
+          docker logs crypto-payment-ci
+          exit 1
 
   deploy:
     runs-on: ubuntu-latest

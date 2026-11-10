@@ -1,7 +1,7 @@
 /* External dependencies */
 import fetch from 'node-fetch';
 import { config } from 'dotenv';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import { Connection, PublicKey } from '@solana/web3.js';
 
 config();
@@ -99,7 +99,7 @@ export async function makeRpcRequest<T>(
         body: JSON.stringify({
             method,
             params,
-            id: uuidv4(),
+            id: randomUUID(),
             jsonrpc: Const.RPC
         })
     });

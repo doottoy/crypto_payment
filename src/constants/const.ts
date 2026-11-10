@@ -1,7 +1,12 @@
 import { config } from 'dotenv';
-import { AbiItem } from 'web3-utils';
 
 config();
+
+/**
+ * One entry of a JSON ABI. The type used to come from web3-utils, which was never a dependency of its own: it arrived
+ * with @truffle/hdwallet-provider. viem reads these lists as plain JSON ABI either way.
+ */
+type AbiItem = Record<string, unknown>;
 
 // Constants
 export const Const = {

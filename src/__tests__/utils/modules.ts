@@ -1,7 +1,7 @@
 /* External dependencies */
-import Web3 from 'web3';
 import { config } from 'dotenv';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
+import { createPublicClient, http, TransactionNotFoundError, TransactionReceiptNotFoundError, type Hex } from 'viem';
 
 config();
 
@@ -192,28 +192,35 @@ async function waitForConfirmations({
     maxRetries = 100,
     sleepDuration = 5000
 }: WaitForConfirmationsParams): Promise<void> {
-    const web3 = new Web3(new Web3.providers.HttpProvider(providerUrl));
+    // viem in place of web3 (which only ever came in through @truffle/hdwallet-provider); viem throws where web3
+    // answered null, so "not found" is turned back into null and the loop below reads exactly as before
+    const client = createPublicClient({ transport: http(providerUrl) });
+    const hash = transactionHash as Hex;
+    const orNull = <T>(lookup: Promise<T>) => lookup.catch((error) => {
+        if (error instanceof TransactionReceiptNotFoundError || error instanceof TransactionNotFoundError) return null;
+        throw error;
+    });
     let retries = maxRetries;
 
     while (retries > 0) {
         try {
             // Fetch the transaction receipt
-            const receipt = await web3.eth.getTransactionReceipt(transactionHash);
+            const receipt = await orNull(client.getTransactionReceipt({ hash }));
 
             if (receipt === null) {
                 // Transaction is not yet mined
                 console.log(`Transaction ${transactionHash} is not yet mined.`);
             } else {
                 // Transaction is mined, calculate confirmations
-                const currentBlock = await web3.eth.getBlockNumber();
-                const transactionBlock = receipt.blockNumber;
+                const currentBlock = Number(await client.getBlockNumber());
+                const transactionBlock = Number(receipt.blockNumber);
                 const confirmations = currentBlock - transactionBlock + 1;
 
                 console.log(`Transaction ${transactionHash} expect ${confirmations} confirmations, actual = ${requiredConfirmations}, block ${currentBlock}`);
 
                 if (confirmations >= requiredConfirmations) {
                     // Fetch the transaction details
-                    const transaction = await web3.eth.getTransaction(transactionHash);
+                    const transaction = await orNull(client.getTransaction({ hash }));
 
                     if (transaction) {
                         // Validate recipient address and amount
@@ -310,7 +317,7 @@ async function waitForLtcConfirmations({
                 body: JSON.stringify({
                     method: ConstTest.RPC_METHOD.GET_RAW_TRANSACTION,
                     params: [transactionHash, true],
-                    id: uuidv4()
+                    id: randomUUID()
                 })
             });
 

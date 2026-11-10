@@ -24,7 +24,7 @@ A 2-minute overview: one HTTP API for payouts on EVM chains, Solana, Tron and Li
 - Tron: Nile (TRX, TRC20)
 
 ## Prerequisites
-- Node.js 18+
+- Node.js 24 (`.nvmrc`; the Docker image and CI use it, Node 20 still runs the service)
 - Access to the necessary RPC endpoints and private keys for the chains you use
 - Telegram bot token and chat id (for alerts)
 
