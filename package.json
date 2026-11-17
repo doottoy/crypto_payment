@@ -10,7 +10,7 @@
     "app:start": "node dist/app.js",
     "tests:start": "",
     "tests:get-data-from-sheet": "ts-node src/__tests__/utils/get-data-from-sheet.ts 0 cryptoPaymentTestData.json",
-    "test:unit": "mocha --no-config --require ts-node/register --require src/__tests__/setup.ts --timeout 60000 --exit \"src/__tests__/unit/**/*.test.ts\" src/__tests__/utils/idempotency.test.ts src/__tests__/utils/evm.test.ts src/__tests__/services/evm.nonce.test.ts",
+    "test:unit": "mocha --no-config --require ts-node/register --require src/__tests__/setup.ts --timeout 60000 --exit \"src/__tests__/unit/**/*.test.ts\" src/__tests__/utils/idempotency.test.ts src/__tests__/utils/evm.test.ts src/__tests__/services/evm.nonce.test.ts src/__tests__/services/evm.decimals.test.ts",
     "tokens:compile": "node scripts/compile-tokens.js"
   },
   "dependencies": {
