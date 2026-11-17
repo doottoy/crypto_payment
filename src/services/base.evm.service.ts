@@ -1,6 +1,6 @@
 /* External dependencies */
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
-import { Address, Hex, createPublicClient, http, keccak256, parseUnits, type PublicClient, type Chain, type TransactionReceipt } from 'viem';
+import { Address, Hex, BaseError, ContractFunctionZeroDataError, createPublicClient, http, keccak256, parseUnits, type PublicClient, type Chain, type TransactionReceipt } from 'viem';
 
 /* Internal dependencies */
 import { logger } from '../utils/logger';
@@ -23,6 +23,7 @@ export abstract class BaseEvmService {
     protected account: PrivateKeyAccount;
     protected chain: Chain;
     protected decimalsCache: Record<string, number> = {};
+    protected decimalsFailures: Record<string, unknown> = {};
 
     constructor(protected payway: string, protected privateKey: string) {
         this.chain = getChainForPayway(this.payway) as Chain;
@@ -69,30 +70,49 @@ export abstract class BaseEvmService {
         return parseUnits(amount, decimals);
     }
 
+    /**
+     * Reads decimals() of the token through the client of the caller, then through the other providers. Only a token that
+     * answers no data (it has no decimals()) gets the fallback: a failed read says nothing about the token, a node may even
+     * report its own failure as a revert (-32603), and guessing 18 for a 6-decimal token would send 10^12 times the amount
+     */
     protected async getContractDecimals(client: PublicClient, contractAddress: Address, fallback: number = 18): Promise<number> {
         const key = contractAddress.toLowerCase();
         if (this.decimalsCache[key] !== undefined) {
             return this.decimalsCache[key];
         }
-
-        try {
-            const decVal = await client.readContract({
-                address: contractAddress as Address,
-                abi: Const.ERC20_ABI as any,
-                functionName: 'decimals'
-            });
-            const decNum = Number(decVal);
-            if (Number.isFinite(decNum)) {
-                this.decimalsCache[key] = decNum;
-                logger.info(this.payway.toUpperCase(), `🧾[DECIMALS][SOURCE:contract][VALUE:${decNum}]`);
-                return decNum;
-            }
-        } catch {
-            logger.warn(this.payway.toUpperCase(), `⚠️[DECIMALS][SOURCE:erc20][CONTRACT:${contractAddress}][FALLBACK:${fallback}]`);
+        // every provider already failed this read for the request: the prepare loop must not repeat it on each of them
+        if (this.decimalsFailures[key] !== undefined) {
+            throw this.decimalsFailures[key];
         }
 
-        this.decimalsCache[key] = fallback;
-        return fallback;
+        const readers = [client, ...this.rpcUrls.map((url) => createPublicClient({ chain: this.chain, transport: http(url, { timeout: 10000 }) }) as PublicClient)];
+        let lastErr: any = new Error(`decimals() of ${contractAddress} returned no number`);
+        for (const reader of readers) {
+            try {
+                const decVal = await reader.readContract({
+                    address: contractAddress as Address,
+                    abi: Const.ERC20_ABI as any,
+                    functionName: 'decimals'
+                });
+                const decNum = Number(decVal);
+                if (Number.isFinite(decNum)) {
+                    this.decimalsCache[key] = decNum;
+                    logger.info(this.payway.toUpperCase(), `🧾[DECIMALS][SOURCE:contract][VALUE:${decNum}]`);
+                    return decNum;
+                }
+            } catch (err: any) {
+                if (err instanceof BaseError && err.walk((cause) => cause instanceof ContractFunctionZeroDataError)) {
+                    logger.warn(this.payway.toUpperCase(), `⚠️[DECIMALS][SOURCE:erc20][CONTRACT:${contractAddress}][FALLBACK:${fallback}]`);
+                    this.decimalsCache[key] = fallback;
+                    return fallback;
+                }
+                lastErr = err;
+                logger.warn(this.payway.toUpperCase(), `⚠️[DECIMALS][CONTRACT:${contractAddress}][READ_FAILED][MSG:${err?.shortMessage || err?.message}]`);
+            }
+        }
+
+        this.decimalsFailures[key] = lastErr;
+        throw lastErr;
     }
 
     protected async buildInitialFees(client: PublicClient): Promise<{
